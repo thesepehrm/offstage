@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.egg-info/
+.venv/
+dist/
+build/
+.pytest_cache/
+
+# Swift / Xcode (fixture projects are generated with xcodegen from project.yml)
+.build/
+DerivedData/
+*.xcodeproj/
+xcuserdata/
+*.xcuserstate
+
+# Harness run artifacts
+.offstage/
+bench/data/
+
+# Baked goldens are byte-exact same-machine only; bake locally, never commit
+examples/*/goldens/
+

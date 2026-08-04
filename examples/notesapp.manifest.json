@@ -1,0 +1,25 @@
+{
+  "name": "NotesApp",
+  "bundle_id": "com.example.offstage.NotesApp",
+  "app_path": "/tmp/offstage-nb-dd/Build/Products/Debug/NotesApp.app",
+  "sock_path": "/tmp/offstage-nb.sock",
+  "canonical_fixture": [
+    ["press", "addNote"],
+    ["press", "addNote"],
+    ["port", "{\"cmd\":\"rename\",\"index\":0,\"title\":\"GOLD-A\"}"],
+    ["port", "{\"cmd\":\"rename\",\"index\":1,\"title\":\"GOLD-B\"}"]
+  ],
+  "goldens": [
+    { "name": "wide", "size": "1000x600", "file": "NotesApp/goldens/wide.png" },
+    {
+      "name": "narrow",
+      "size": "560x600",
+      "file": "NotesApp/goldens/narrow.png"
+    }
+  ],
+  "golden_threshold_pct": 0.1,
+  "a11y_baseline": {
+    "unlabelled_buttons": 3,
+    "empty_menu_items": 30
+  }
+}

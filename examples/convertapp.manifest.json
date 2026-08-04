@@ -1,0 +1,30 @@
+{
+  "name": "ConvertApp",
+  "bundle_id": "com.example.offstage.ConvertApp",
+  "app_path": "/tmp/offstage-ca-dd/Build/Products/Debug/ConvertApp.app",
+  "sock_path": "/tmp/offstage-ca.sock",
+  "canonical_fixture": [
+    ["port", "{\"cmd\":\"set\",\"field\":\"lengthInput\",\"value\":\"1000\"}"],
+    [
+      "port",
+      "{\"cmd\":\"units\",\"tab\":\"length\",\"from\":\"m\",\"to\":\"km\"}"
+    ]
+  ],
+  "goldens": [
+    {
+      "name": "wide",
+      "size": "700x500",
+      "file": "ConvertApp/goldens/wide.png"
+    },
+    {
+      "name": "narrow",
+      "size": "500x500",
+      "file": "ConvertApp/goldens/narrow.png"
+    }
+  ],
+  "golden_threshold_pct": 0.1,
+  "a11y_baseline": {
+    "unlabelled_buttons": 3,
+    "empty_menu_items": 30
+  }
+}

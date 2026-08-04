@@ -1,0 +1,44 @@
+name: ConvertApp
+options:
+  bundleIdPrefix: com.example.offstage
+  deploymentTarget:
+    macOS: "15.0"
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGNING_REQUIRED: "NO"
+    GENERATE_INFOPLIST_FILE: "YES"
+packages:
+  OffstagePort:
+    path: ../../swift/OffstagePort
+targets:
+  ConvertApp:
+    type: application
+    platform: macOS
+    sources: [Sources]
+    dependencies:
+      - package: OffstagePort
+    info:
+      path: Info.plist
+      properties:
+        CFBundleName: ConvertApp
+        CFBundleDisplayName: ConvertApp
+        LSMinimumSystemVersion: "15.0"
+        NSPrincipalClass: NSApplication
+  ConvertAppTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [Tests]
+    dependencies:
+      - target: ConvertApp
+schemes:
+  ConvertApp:
+    build:
+      targets:
+        ConvertApp: all
+        ConvertAppTests: [test]
+    test:
+      gatherCoverageData: false
+      targets:
+        - ConvertAppTests

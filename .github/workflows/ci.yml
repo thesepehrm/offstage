@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# What CI can and cannot verify: probe compilation, the Swift package (incl.
+# its socket round-trip tests), Python unit tests, manifest validation, and
+# fixture-app builds all run headless. The live channels (AX reads, AXPress,
+# ScreenCaptureKit captures) require Accessibility + Screen Recording
+# permissions, which are one-time MANUAL grants per host — hosted runners
+# cannot grant them. The bench batteries therefore run only on a self-hosted,
+# pre-authorized macOS runner (or locally); on hosted runners they are skipped.
+
+jobs:
+  python:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -e '.[dev]'
+      - name: Unit tests
+        run: pytest -m "not live" -q
+      - name: Compile probes
+        run: offstage probes build
+      - name: Validate example manifests
+        run: |
+          offstage validate examples/notesapp.manifest.json
+          offstage validate examples/convertapp.manifest.json
+
+  swift-port:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build + test OffstagePort
+        working-directory: swift/OffstagePort
+        run: |
+          swift build
+          swift test
+
+  fixture-apps:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install xcodegen
+        run: brew install xcodegen
+      - name: Build NotesApp (app + unit tests)
+        working-directory: examples/NotesApp
+        run: |
+          xcodegen generate
+          xcodebuild -project NotesApp.xcodeproj -scheme NotesApp \
+            -configuration Debug -derivedDataPath /tmp/offstage-nb-dd build
+          xcodebuild -project NotesApp.xcodeproj -scheme NotesApp \
+            -configuration Debug -derivedDataPath /tmp/offstage-nb-dd \
+            test -only-testing:NotesAppTests
+      - name: Build ConvertApp (app + unit tests)
+        working-directory: examples/ConvertApp
+        run: |
+          xcodegen generate
+          xcodebuild -project ConvertApp.xcodeproj -scheme ConvertApp \
+            -configuration Debug -derivedDataPath /tmp/offstage-ca-dd build
+          xcodebuild -project ConvertApp.xcodeproj -scheme ConvertApp \
+            -configuration Debug -derivedDataPath /tmp/offstage-ca-dd test
