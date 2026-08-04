@@ -28,7 +28,7 @@ dev = ["pytest>=8"]
 where = ["src"]
 
 [tool.setuptools.package-data]
-offstage = ["probes/*.swift"]
+offstage = ["probes/*.swift", "skill/offstage-qa/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -2,18 +2,29 @@
 
 **Background QA for macOS apps — while you keep using your Mac.**
 
-offstage lets an AI agent (or a plain script) exercise and verify a native
-macOS app _in the background_: it reads real structure through the
-accessibility tree, captures real pixels with ScreenCaptureKit, presses
-controls via `AXPress`, and verifies against ground truth (UserDefaults / a
-semantic port) — with **zero synthetic input ever reaching your foreground**.
-The app under test never becomes frontmost; you keep typing in your editor.
+offstage lets an AI agent (or a plain script) drive and verify a native macOS
+app without taking over your desktop. The app under test stays in the
+background, never becomes frontmost, and no synthetic input ever reaches your
+foreground.
 
-Measured results behind the design (single host, macOS 26.1): equal-or-better
-defect recall than screenshot-based agents at 3.6–28× lower observation cost,
-and a deterministic regression mode that catches seeded defects at 13/13 and
-8/8 with 0 false alarms — using **zero model tokens**. See
-[docs/channels.md](docs/channels.md) for the numbers and their limits.
+What the agent gets:
+
+- **Structure**: the accessibility tree, as compact text (`observe`).
+- **Pixels**: real ScreenCaptureKit window captures — on-demand screenshots
+  (`observe --mode screenshot`) and canonical-state golden diffs (`golden`).
+- **Control**: button and menu presses via `AXPress` (`press`, `menu`), plus a
+  semantic port the app embeds in debug builds for what background AX can't do
+  — typing, tab switching, drags (`port`).
+- **Ground truth**: the app's persisted state via `defaults export`, so
+  verification never rests on what the UI merely claims.
+
+The one thing it refuses: synthetic keyboard/mouse events on a shared desktop.
+Those land in whatever window is frontmost — including yours.
+
+Measured (single host, macOS 26.1): text observation matches screenshot QA on
+defect recall at 3.6–28× fewer observation tokens, and the deterministic
+battery mode catches seeded defects at 13/13 and 8/8 with zero false alarms
+and zero model tokens. Details: [docs/channels.md](docs/channels.md).
 
 ## How it works
 
@@ -27,24 +38,15 @@ and a deterministic regression mode that catches seeded defects at 13/13 and
                  UserDefaults ground truth
 ```
 
-- **Perceive** through the AX tree (`observe`) — ~1/20th the tokens of a
-  screenshot, and it degrades more gracefully with smaller models.
-- **Actuate** with `AXPress` (`press`, `menu`) — no synthetic events — and a
-  **semantic port** the app embeds in debug builds
-  ([OffstagePort](swift/OffstagePort)) for everything background AX can't do
-  (typing, tab switching, drags).
-- **Verify** against ground truth: `defaults export`, port state, and
-  canonical-state pixel goldens (`golden`).
-
 ## Quick start
 
 ```sh
 pip install -e .
-offstage probes build       # compiles the Swift probe binaries (one-time)
-offstage doctor             # checks session, permissions, toolchain
+offstage probes build       # compile the Swift probe binaries (one-time)
+offstage doctor             # check session, permissions, toolchain
 ```
 
-Try it on the bundled fixture app:
+Try the bundled fixture app:
 
 ```sh
 cd examples/NotesApp
@@ -53,50 +55,67 @@ xcodebuild -project NotesApp.xcodeproj -scheme NotesApp -configuration Debug \
   -derivedDataPath /tmp/offstage-nb-dd build
 cd ..
 
-offstage validate notesapp.manifest.json
 offstage start notesapp.manifest.json
 offstage press notesapp.manifest.json addNote
 offstage observe notesapp.manifest.json
 offstage port notesapp.manifest.json '{"cmd":"rename","index":0,"title":"Hello"}'
-offstage golden bake notesapp.manifest.json   # bake canonical goldens (local!)
-offstage golden check notesapp.manifest.json  # later: pixel-diff against them
+offstage golden bake notesapp.manifest.json   # goldens are per-machine
+offstage golden check notesapp.manifest.json
 offstage stop notesapp.manifest.json
 ```
 
-Point it at your own app by writing a manifest
-([docs/manifest.md](docs/manifest.md)) and embedding the port
-([swift/OffstagePort](swift/OffstagePort)) behind `--uitest-port`.
+For your own app: write a manifest ([docs/manifest.md](docs/manifest.md)) and
+embed the port ([swift/OffstagePort](swift/OffstagePort)).
 
-## The deterministic batteries
+## Use with Claude Code / Codex / other agents
 
-[bench/](bench/) holds scripted probe batteries for the two fixture apps —
-launch, a11y scan, journeys, edge inputs, persistence, canonical goldens, and
-an app-never-frontmost safety check. They are the harness's integration tests
-and a template for crystallizing your own app's journeys into a 0-token
-regression gate (~30 s per run).
+The CLI is the agent interface — any agent that can run shell commands can QA
+an app with it. A ready-made skill teaches the workflow and the safety rules:
 
 ```sh
-python3 bench/battery_notes.py baseline --make-golden   # first run bakes goldens
-python3 bench/battery_notes.py check                    # 0-token regression gate
+offstage skill install                 # copies into ~/.claude/skills
+offstage skill install --target .agents/skills   # or anywhere else
+```
+
+Claude Code can also install it as a plugin:
+
+```
+/plugin marketplace add <github-user>/offstage
+/plugin install offstage-qa@offstage
+```
+
+For agents without a skill mechanism, paste the contents of
+[skills/offstage-qa/SKILL.md](skills/offstage-qa/SKILL.md) into your
+`AGENTS.md`.
+
+## Deterministic batteries
+
+[bench/](bench/) holds scripted probe batteries for the fixture apps: launch,
+a11y scan, journeys, edge inputs, persistence, canonical goldens, and an
+app-never-frontmost safety check. They are the integration tests, and the
+template for turning your own app's journeys into a ~30 s, zero-token
+regression gate:
+
+```sh
+python3 bench/battery_notes.py baseline --make-golden
+python3 bench/battery_notes.py check
 ```
 
 ## Host requirements
 
 - macOS 15+ (measured on 26.1), Xcode command-line tools; `xcodegen` for the
   example apps.
-- **Unlocked screen, display awake** (`caffeinate -du` for long runs). The
-  driver refuses to run into a locked session — channels degrade silently.
-- **Accessibility** and **Screen Recording** permissions for the host
-  terminal/process. These are one-time manual grants (System Settings >
-  Privacy & Security); there is no programmatic way around them, including in
-  CI — see [docs/limits.md](docs/limits.md).
+- Unlocked screen, display awake (`caffeinate -du` for long runs). The driver
+  refuses to run into a locked session — channels degrade silently.
+- Accessibility + Screen Recording permission for the host terminal. One-time
+  manual grants; no programmatic way around them, including in CI.
 
-## What this deliberately does not do
+## Limits
 
-No synthetic keyboard/mouse events on a shared desktop, ever. No background
-typing into SwiftUI fields (the AX set-value "success" is an illusion — the
-store never changes). No golden portability across machines (byte-exact is
-same-machine only). The full list of encoded lessons: [docs/limits.md](docs/limits.md).
+No synthetic input on a shared desktop. No background typing into SwiftUI
+fields (AX set-value looks like it works; the store never changes). Goldens
+are byte-exact same-machine only. Full list, with the failures behind each
+rule: [docs/limits.md](docs/limits.md).
 
 ## Repo layout
 
@@ -105,6 +124,7 @@ same-machine only). The full list of encoded lessons: [docs/limits.md](docs/limi
 | `src/offstage/`        | Python driver + CLI (`offstage`), manifest validator        |
 | `src/offstage/probes/` | single-file Swift probes (AX, SCK, pixdiff, session lock)   |
 | `swift/OffstagePort/`  | Swift package: the semantic port apps embed in debug builds |
+| `skills/`              | agent skill (Claude Code plugin layout)                     |
 | `examples/`            | two fixture apps (NotesApp, ConvertApp) + manifests         |
 | `bench/`               | deterministic probe batteries (= integration tests)         |
 | `docs/`                | channel table, limits, manifest reference                   |
@@ -112,9 +132,8 @@ same-machine only). The full list of encoded lessons: [docs/limits.md](docs/limi
 ## Provenance
 
 Extracted from a private research program on agentic macOS QA — channel
-measurement, perception ablations, seeded-defect benchmarks. The
-numbers quoted throughout are from those measured runs; where a rule looks
-oddly specific, it's because violating it broke a run.
+measurement, perception ablations, seeded-defect benchmarks. Where a rule
+looks oddly specific, violating it broke a run.
 
 ## License
 

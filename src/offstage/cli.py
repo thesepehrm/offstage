@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 from . import __version__, probes
 from .driver import Driver, SessionLockedError
@@ -65,6 +66,21 @@ def cmd_doctor(args) -> int:
     print("note  Screen Recording permission: required for sckwin golden captures")
     print("note  keep the display awake during runs: caffeinate -du")
     return 0 if ok else 1
+
+
+def cmd_skill(args) -> int:
+    import shutil as _sh
+    src = Path(__file__).resolve().parent / "skill" / "offstage-qa"
+    if not src.exists():
+        print(f"skill files missing from package: {src}")
+        return 1
+    target = Path(args.target).expanduser() / "offstage-qa"
+    target.mkdir(parents=True, exist_ok=True)
+    for f in src.iterdir():
+        _sh.copyfile(f, target / f.name)
+    print(f"installed skill to {target}")
+    print("restart your agent session (or /skills reload) to pick it up")
+    return 0
 
 
 def cmd_validate(args) -> int:
@@ -128,6 +144,13 @@ def main(argv: list[str] | None = None) -> int:
 
     sp = sub.add_parser("doctor", help="check host prerequisites")
     sp.set_defaults(fn=cmd_doctor)
+
+    sp = sub.add_parser("skill", help="install the agent skill (Claude Code etc.)")
+    spp = sp.add_subparsers(dest="skill_cmd", required=True)
+    si = spp.add_parser("install", help="copy the offstage-qa skill into a skills dir")
+    si.add_argument("--target", default="~/.claude/skills",
+                    help="skills directory (default: ~/.claude/skills)")
+    si.set_defaults(fn=cmd_skill)
 
     sp = sub.add_parser("validate", help="validate a manifest")
     sp.add_argument("manifest")

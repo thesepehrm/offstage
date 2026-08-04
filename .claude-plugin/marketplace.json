@@ -1,0 +1,13 @@
+{
+  "name": "offstage",
+  "owner": {
+    "name": "offstage"
+  },
+  "plugins": [
+    {
+      "name": "offstage-qa",
+      "source": "./",
+      "description": "Background QA for macOS apps: AX perception, semantic port actuation, canonical pixel goldens, ground-truth verification."
+    }
+  ]
+}
