@@ -9,5 +9,6 @@
       "source": "./",
       "description": "Background QA for macOS apps: AX perception, semantic port actuation, canonical pixel goldens, ground-truth verification."
     }
-  ]
+  ],
+  "description": "Background QA for macOS apps with the offstage harness."
 }

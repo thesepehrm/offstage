@@ -1,5 +1,8 @@
 {
   "name": "offstage-qa",
   "description": "Background QA for macOS apps via the offstage harness: AX perception, semantic port actuation, canonical pixel goldens, ground-truth verification.",
-  "version": "0.1.0"
+  "version": "0.1.0",
+  "author": {
+    "name": "offstage"
+  }
 }
