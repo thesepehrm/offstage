@@ -1,12 +1,14 @@
 import XCTest
 
-// Step 2/3: the three task-card journeys, crystallized as XCUITest.
-// Every verification is an AX-state assertion — no screenshots anywhere.
+// The three task-card journeys, crystallized as XCUITest.
+// Every verification is an AX-state assertion; no screenshots anywhere.
 @MainActor
 final class JourneyTests: XCTestCase {
     private var app: XCUIApplication!
 
-    override func setUpWithError() throws {
+    // async override so the body stays main-actor isolated (a synchronous
+    // setUpWithError override is nonisolated and cannot touch XCUIApplication)
+    override func setUp() async throws {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchArguments = ["--uitest-reset"] // start from empty defaults
