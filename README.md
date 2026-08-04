@@ -1,46 +1,46 @@
 # offstage
 
-**Background QA for macOS apps — while you keep using your Mac.**
+**Background QA for macOS apps while you keep using your Mac.**
 
 offstage lets an AI agent (or a plain script) drive and verify a native macOS
 app without taking over your desktop. The app under test stays in the
-background, never becomes frontmost, and no synthetic input ever reaches your
+background and never becomes frontmost. No synthetic input reaches your
 foreground.
 
-What the agent gets:
+The agent gets four channels:
 
-- **Structure**: the accessibility tree, as compact text (`observe`).
-- **Pixels**: real ScreenCaptureKit window captures — on-demand screenshots
+- **Structure**: the accessibility tree as compact text (`observe`).
+- **Pixels**: real ScreenCaptureKit window captures. On-demand screenshots
   (`observe --mode screenshot`) and canonical-state golden diffs (`golden`).
-- **Control**: button and menu presses via `AXPress` (`press`, `menu`), plus a
-  semantic port the app embeds in debug builds for what background AX can't do
-  — typing, tab switching, drags (`port`).
-- **Ground truth**: the app's persisted state via `defaults export`, so
-  verification never rests on what the UI merely claims.
+- **Control**: button and menu presses via `AXPress` (`press`, `menu`), and a
+  semantic port the app embeds in debug builds (`port`) for typing, tab
+  switching, and drags.
+- **Ground truth**: the app's persisted state via `defaults export`.
+  Verification never rests on what the UI claims.
 
-The one thing it refuses: synthetic keyboard/mouse events on a shared desktop.
-Those land in whatever window is frontmost — including yours.
+The one refusal: synthetic keyboard or mouse events on a shared desktop.
+Those land in whatever window is frontmost, including yours.
 
-## Why this beats a computer-use agent
+## Why not a computer-use agent?
 
-A screenshot-driven computer-use agent needs the foreground: it clicks and
+A screenshot-driven computer-use agent needs the foreground. It clicks and
 types into the frontmost window, so it can't run while you work, and every
-observation is an image. offstage inverts both: background-only channels, and
-text observation with pixels reserved for the checks that need them.
+observation costs an image. offstage inverts both: background-only channels,
+text observation, pixels only where a check needs them.
 
-Measured, seeded-defect benchmarks (single host, macOS 26.1):
+Measured on seeded-defect benchmarks (single host, macOS 26.1):
 
 | claim                         | number                                                                                                           |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| equal or better defect recall | blind agents on text vs screenshots: 5/6 vs 5/6 (frontier model), 4/6 vs 3/6 (small), 6/8 vs 5/8 (second app)    |
-| far cheaper observation       | 3.6–28× fewer observation tokens; 19–31% cheaper whole-session                                                   |
+| equal or better defect recall | text vs screenshots: 5/6 vs 5/6 (frontier model), 4/6 vs 3/6 (small), 6/8 vs 5/8 (second app)                    |
+| cheaper observation           | 3.6–28× fewer observation tokens; 19–31% cheaper whole-session                                                   |
 | smaller models degrade less   | small model lost 2/6 recall on screenshots, 1/6 on text                                                          |
 | free regression mode          | scripted batteries: 13/13 and 8/8 seeded defects, 0 false alarms in 57 clean probe outcomes, ~30 s/run, 0 tokens |
-| fast channels                 | AX read p50 8 ms · SCK capture p50 41 ms, byte-identical on static scenes · port round-trip p50 0.04 ms          |
+| fast channels                 | AX read p50 8 ms; SCK capture p50 41 ms, byte-identical on static scenes; port round-trip p50 0.04 ms            |
 
-The two modes are complementary: pixels miss semantics (label defects aren't
-pixels), text misses typography (font regressions need the golden diff). Run
-both — offstage exposes both. Details: [docs/channels.md](docs/channels.md).
+The two modes cover each other's blind spots. Pixels miss semantics (label
+defects aren't pixels); text misses typography (font regressions need the
+golden diff). Details: [docs/channels.md](docs/channels.md).
 
 ## How it works
 
@@ -83,13 +83,13 @@ offstage stop notesapp.manifest.json
 For your own app: write a manifest ([docs/manifest.md](docs/manifest.md)) and
 embed the port ([swift/OffstagePort](swift/OffstagePort)).
 
-## Use with Claude Code / Codex / other agents
+## Use with Claude Code, Codex, and other agents
 
-The CLI is the agent interface — any agent that can run shell commands can QA
+The CLI is the agent interface. Any agent that can run shell commands can QA
 an app with it. A ready-made skill teaches the workflow and the safety rules:
 
 ```sh
-offstage skill install                 # copies into ~/.claude/skills
+offstage skill install                           # copies into ~/.claude/skills
 offstage skill install --target .agents/skills   # or anywhere else
 ```
 
@@ -100,7 +100,7 @@ Claude Code can also install it as a plugin:
 /plugin install offstage-qa@offstage
 ```
 
-For agents without a skill mechanism, paste the contents of
+Agents without a skill mechanism: paste
 [skills/offstage-qa/SKILL.md](skills/offstage-qa/SKILL.md) into your
 `AGENTS.md`.
 
@@ -108,9 +108,9 @@ For agents without a skill mechanism, paste the contents of
 
 [bench/](bench/) holds scripted probe batteries for the fixture apps: launch,
 a11y scan, journeys, edge inputs, persistence, canonical goldens, and an
-app-never-frontmost safety check. They are the integration tests, and the
-template for turning your own app's journeys into a ~30 s, zero-token
-regression gate:
+app-never-frontmost safety check. They double as the integration tests and as
+the template for turning your own app's journeys into a ~30 s, zero-token
+regression gate.
 
 ```sh
 python3 bench/battery_notes.py baseline --make-golden
@@ -119,19 +119,19 @@ python3 bench/battery_notes.py check
 
 ## Host requirements
 
-- macOS 15+ (measured on 26.1), Xcode command-line tools; `xcodegen` for the
+- macOS 15+ (measured on 26.1), Xcode command-line tools, `xcodegen` for the
   example apps.
 - Unlocked screen, display awake (`caffeinate -du` for long runs). The driver
-  refuses to run into a locked session — channels degrade silently.
-- Accessibility + Screen Recording permission for the host terminal. One-time
-  manual grants; no programmatic way around them, including in CI.
+  refuses to run into a locked session because the channels degrade silently.
+- Accessibility and Screen Recording permission for the host terminal.
+  One-time manual grants; nothing can automate them, including CI.
 
 ## Limits
 
 No synthetic input on a shared desktop. No background typing into SwiftUI
 fields (AX set-value looks like it works; the store never changes). Goldens
-are byte-exact same-machine only. Full list, with the failures behind each
-rule: [docs/limits.md](docs/limits.md).
+are byte-exact on the same machine only. Full list, with the failure behind
+each rule: [docs/limits.md](docs/limits.md).
 
 ## Repo layout
 
@@ -147,10 +147,10 @@ rule: [docs/limits.md](docs/limits.md).
 
 ## Provenance
 
-Extracted from a private research program on agentic macOS QA — channel
+Extracted from a private research program on agentic macOS QA: channel
 measurement, perception ablations, seeded-defect benchmarks. Where a rule
 looks oddly specific, violating it broke a run.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).

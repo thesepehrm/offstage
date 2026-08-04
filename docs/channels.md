@@ -1,7 +1,7 @@
 # Background-safe channels
 
 An agent can perceive and partially drive a macOS app **while the app stays in
-the background and a user actively uses the same desktop** — with no synthetic
+the background and a user actively uses the same desktop**, with no synthetic
 input ever reaching the user's foreground app. These are the channels offstage
 composes (all measured on a single host, macOS 26.1, n=20 per channel unless
 noted):
@@ -24,11 +24,11 @@ noted):
 - **No synthetic events on a shared desktop, ever.** `CGEvent` key events reach
   the target's queue with `window == nil`; AppKit/SwiftUI dispatch requires
   real active-window state. Event-injecting XCUITest lands keystrokes in
-  whatever is frontmost — including the user's browser URL bar (observed).
+  whatever is frontmost, including the user's browser URL bar (observed).
   Idle-gating is not sufficient; journeys that need real events need a
   dedicated login session or machine, full stop.
 - **`CALayer.render(in:)` is not a capture channel.** Its Metal region comes
-  back transparent-empty and vibrancy renders flat gray — it re-executes CG
+  back transparent-empty and vibrancy renders flat gray. It re-executes CG
   drawing, it does not read the composited frame. ScreenCaptureKit is the only
   valid way to read composited pixels.
 - **SwiftUI TabView tabs (and AppKit control tracking loops, WindowServer drag
@@ -45,5 +45,5 @@ All measured, single host, macOS 26.1, in the research program this harness was 
 - Blind-agent arms (AX/ground-truth text vs screenshots): equal or better
   defect recall at 3.6–28× lower observation token cost; the advantage grows
   as the model shrinks.
-- Whole-session cost still favors the text arm (19–31%) — orchestration
+- Whole-session cost still favors the text arm (19–31%); orchestration
   dominates outside observations.

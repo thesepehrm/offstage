@@ -1,6 +1,6 @@
 # Manifest reference
 
-All per-app knowledge lives in a manifest JSON — data, not code. The harness
+All per-app knowledge lives in a manifest JSON: data, not code. The harness
 verbs are generic. Validate with `offstage validate <manifest>`.
 
 ```json
@@ -32,19 +32,19 @@ verbs are generic. Validate with `offstage validate <manifest>`.
 | `canonical_fixture`    | no       | driver steps that rebuild the exact state goldens are baked from (`press`/`menu`/`port`/`sleep`)         |
 | `goldens`              | no       | window sizes + files for canonical-state pixel goldens                                                   |
 | `golden_threshold_pct` | no       | diff % above which a golden check fails (default 0.1; values inside the ~0.08% noise band are rejected)  |
-| `a11y_baseline`        | no       | expected `axscan` counts; batteries compare against it (host/OS-version specific — re-baseline per host) |
+| `a11y_baseline`        | no       | expected `axscan` counts; batteries compare against it (host and OS-version specific; re-baseline per host) |
 
 Relative paths resolve against the manifest file's directory.
 
 ## Requirements on the app under test
 
 - Honor the port flag: start an OffstagePort (debug builds only). Use
-  `AgentPort.fromLaunchArguments` — the driver passes `-uitest-port <sock>`
+  `AgentPort.fromLaunchArguments`. The driver passes `-uitest-port <sock>`
   (a `-key value` pair, which AppKit strips; bare `--flags` become "documents
-  to open" and suppress window creation once three accumulate — see
+  to open" and suppress window creation once three accumulate; see
   [limits.md](limits.md)); `--uitest-port <sock>` also works for manual runs.
 - Honor the reset flag (`AgentPort.resetRequested`): drop the persistent
   domain and start as a fresh user (also clears NSWindow frame / NSSplitView
-  autosave — layout leaks across runs otherwise and breaks goldens).
+  autosave, which otherwise leaks layout across runs and breaks goldens).
 - Give interactive elements `.accessibilityIdentifier`s: they are how `press`
   targets controls and how findings are pinned to elements.

@@ -1,6 +1,6 @@
 ---
 name: offstage-qa
-description: QA a macOS app in the background while the user keeps using their Mac — via the offstage harness (AX perception, semantic port, canonical pixel goldens, ground-truth verification). Use when asked to test, QA, exercise, or regression-check a native macOS app; when verifying a macOS app change works in the real app; or when the user mentions offstage, a manifest, goldens, or background app testing.
+description: QA a macOS app in the background while the user keeps using their Mac, via the offstage harness (AX perception, semantic port, canonical pixel goldens, ground-truth verification). Use when asked to test, QA, exercise, or regression-check a native macOS app; when verifying a macOS app change works in the real app; or when the user mentions offstage, a manifest, goldens, or background app testing.
 ---
 
 # QA a macOS app with offstage
@@ -8,7 +8,7 @@ description: QA a macOS app in the background while the user keeps using their M
 offstage drives a macOS app **in the background**: the app never becomes
 frontmost, and no synthetic input ever reaches the user's foreground. You
 perceive through the accessibility tree, act through `AXPress` and a semantic
-port, and verify against ground truth — not screenshots.
+port, and verify against ground truth, not screenshots.
 
 ## Prerequisites (check once per session)
 
@@ -18,7 +18,7 @@ offstage doctor
 
 If `offstage` is not installed: `pip install offstage` (or `pip install -e .`
 inside the harness repo). Doctor failing on a locked screen or missing
-Accessibility / Screen Recording permission is a **user action** — report it
+Accessibility or Screen Recording permission is a **user action**: report it
 and stop; there is no programmatic workaround.
 
 The app under test needs a manifest (JSON describing bundle id, app path,
@@ -48,19 +48,19 @@ offstage golden bake <manifest>    # rewrite goldens (only when a visual change 
 
 - **Observe with `observe`, never screenshots.** It returns AX structure,
   persisted store (ground truth), port state, and a11y counts in one compact
-  JSON — about 1/20th the tokens of an image, and more reliable.
+  JSON, at about 1/20th the tokens of an image, and more reliable.
 - **Verify against ground truth.** A defect claim must cite the `defaults`
   or port-state evidence, not just an action's echo. After every mutating
-  action, check `app_alive=` in the output — a dead app is a crash finding.
+  action, check `app_alive=` in the output. A dead app is a crash finding.
 - **Typing, tab switching, and drags go through `port`.** Background AX
-  cannot type into SwiftUI fields or switch TabView tabs — an unswitchable
+  cannot type into SwiftUI fields or switch TabView tabs. An unswitchable
   tab is a harness limit, NOT an app defect. The port's commands are
   app-specific; discover them in the app's `PortSetup.swift` (or equivalent
   AgentPort handler).
 - **`golden check` resets the app** to its canonical fixture state before
   capturing. Run it last, and expect previous session state to be gone.
   Diff above the manifest threshold (default 0.1%) = real visual change.
-  Never `golden bake` to make a failure pass — bake only when the user
+  Never `golden bake` to make a failure pass; bake only when the user
   intended a visual change.
 - **Persistence checks**: set distinctive state, `restart` (not `start`),
   confirm the state survived.
