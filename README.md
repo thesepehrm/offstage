@@ -96,7 +96,7 @@ offstage skill install --target .agents/skills   # or anywhere else
 Claude Code can also install it as a plugin:
 
 ```
-/plugin marketplace add <github-user>/offstage
+/plugin marketplace add thesepehrm/offstage
 /plugin install offstage-qa@offstage
 ```
 
