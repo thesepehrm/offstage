@@ -21,10 +21,26 @@ What the agent gets:
 The one thing it refuses: synthetic keyboard/mouse events on a shared desktop.
 Those land in whatever window is frontmost — including yours.
 
-Measured (single host, macOS 26.1): text observation matches screenshot QA on
-defect recall at 3.6–28× fewer observation tokens, and the deterministic
-battery mode catches seeded defects at 13/13 and 8/8 with zero false alarms
-and zero model tokens. Details: [docs/channels.md](docs/channels.md).
+## Why this beats a computer-use agent
+
+A screenshot-driven computer-use agent needs the foreground: it clicks and
+types into the frontmost window, so it can't run while you work, and every
+observation is an image. offstage inverts both: background-only channels, and
+text observation with pixels reserved for the checks that need them.
+
+Measured, seeded-defect benchmarks (single host, macOS 26.1):
+
+| claim                         | number                                                                                                           |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| equal or better defect recall | blind agents on text vs screenshots: 5/6 vs 5/6 (frontier model), 4/6 vs 3/6 (small), 6/8 vs 5/8 (second app)    |
+| far cheaper observation       | 3.6–28× fewer observation tokens; 19–31% cheaper whole-session                                                   |
+| smaller models degrade less   | small model lost 2/6 recall on screenshots, 1/6 on text                                                          |
+| free regression mode          | scripted batteries: 13/13 and 8/8 seeded defects, 0 false alarms in 57 clean probe outcomes, ~30 s/run, 0 tokens |
+| fast channels                 | AX read p50 8 ms · SCK capture p50 41 ms, byte-identical on static scenes · port round-trip p50 0.04 ms          |
+
+The two modes are complementary: pixels miss semantics (label defects aren't
+pixels), text misses typography (font regressions need the golden diff). Run
+both — offstage exposes both. Details: [docs/channels.md](docs/channels.md).
 
 ## How it works
 
