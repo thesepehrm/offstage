@@ -105,6 +105,14 @@ public final class AgentPort: @unchecked Sendable {
               obj["cmd"] is String else {
             return Data("{\"error\":\"bad json\"}\n".utf8)
         }
+        // Built-in settle barrier, answered without involving the app handler:
+        // the reply still hops through the main thread, so one round-trip
+        // proves every main-thread task queued before it (button actions,
+        // store writes) has completed.
+        if obj["cmd"] as? String == "offstage.ping" {
+            if !Thread.isMainThread { DispatchQueue.main.sync {} }
+            return Data("{\"ok\":1}\n".utf8)
+        }
         var replyObj: [String: Any] = [:]
         if Thread.isMainThread {
             replyObj = handler(obj)

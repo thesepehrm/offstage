@@ -68,6 +68,25 @@ class Driver:
             with self.cost_log.open("a") as f:
                 f.write(f"{kind} {tokens}\n")
 
+    def wait_gone(self, p: int, timeout: float = 3.0) -> None:
+        t0 = time.time()
+        while time.time() - t0 < timeout:
+            if self.pid() is None:
+                return
+            time.sleep(0.05)
+        subprocess.run(["kill", "-9", str(p)])
+        time.sleep(0.2)
+
+    def settle(self, timeout: float = 2.0) -> None:
+        """Post-action settle: a port round-trip instead of a flat sleep. The
+        port handler replies via DispatchQueue.main.sync, so one successful
+        round-trip proves every main-thread task queued before it (AXPress
+        action handlers, store writes) has completed. Apps without a live
+        port keep the old flat settle."""
+        r = self.port_cmd({"cmd": "offstage.ping"}, timeout=timeout)
+        if not (isinstance(r, dict) and "error" not in r):
+            time.sleep(0.6)
+
     def check_session_unlocked(self) -> None:
         if "ScreenIsLocked = 1" in self.probe("sesslock"):
             raise SessionLockedError(
@@ -134,7 +153,7 @@ class Driver:
         p = self.pid()
         if p:
             subprocess.run(["kill", str(p)])
-            time.sleep(1)
+            self.wait_gone(p)
         Path(self.mf.sock_path).unlink(missing_ok=True)
         # Drop crash-recovery residue: after a crash, the CrashReporter flag
         # plist (and any saved state) makes the next launch show the modal
@@ -162,11 +181,22 @@ class Driver:
         if reset:
             args += ["-uitest-reset", "1"]
         subprocess.run(args, check=True)
+        # Launch is settled when the port answers (main run loop alive) AND an
+        # AXWindow exists (SwiftUI finished first layout) — replaces the old
+        # flat 0.8 s guess. Apps without a port fall back to that flat wait.
         t0 = time.time()
         while time.time() - t0 < 10:
             if Path(self.mf.sock_path).exists() and self.pid():
-                time.sleep(0.8)  # let SwiftUI finish first layout
+                break
+            time.sleep(0.05)
+        else:
+            return False
+        while time.time() - t0 < 10:
+            r = self.port_cmd({"cmd": "offstage.ping"}, timeout=1.0)
+            if (isinstance(r, dict) and "error" not in r
+                    and "AXWindow" in self.probe("axdump", self.mf.bundle_id)):
                 return True
+            time.sleep(0.05)
         return False
 
     def stop(self) -> None:
@@ -179,8 +209,8 @@ class Driver:
     def _act(self, fn) -> str:
         t0 = time.time()
         fn()
-        ms = (time.time() - t0) * 1000  # action only; settle sleep excluded
-        time.sleep(0.6)
+        ms = (time.time() - t0) * 1000  # action only; settle excluded
+        self.settle()
         return f"done latency_ms={ms:.0f} app_alive={self.pid() is not None}"
 
     def press(self, identifier: str) -> str:
@@ -194,7 +224,7 @@ class Driver:
         t0 = time.time()
         reply = self.port_cmd(json.loads(payload))
         ms = (time.time() - t0) * 1000
-        time.sleep(0.6)
+        self.settle()
         return (json.dumps(reply)
                 + f"\ndone latency_ms={ms:.0f} app_alive={self.pid() is not None}")
 
