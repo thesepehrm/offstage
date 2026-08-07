@@ -62,8 +62,12 @@ value` pairs from the launch arguments, but treats leftover bare arguments
   treat missing AX exposure as a bug in the app under test (it also breaks
   VoiceOver users).
 - Timing: poll postconditions with a timeout instead of fixed sleeps where you
-  can. Measured action → AX-tree-settled p50 38 ms, p95 56 ms; the driver's
-  0.6 s settle sleep has large margin but is still a heuristic.
+  can. Measured action → AX-tree-settled p50 38 ms, p95 56 ms, so a fixed
+  0.6 s settle spent an order of magnitude more than the work needed and still
+  only guessed. The driver now settles on a `offstage.ping` port round-trip
+  (the reply crosses `DispatchQueue.main.sync`, so it proves the main-thread
+  work queued by the action has run) and waits for launch on port-answers plus
+  an `AXWindow` in the tree. Apps with no port fall back to the flat sleep.
 - Order-sensitive defects (stale recompute after a specific journey order)
   favor crystallized deterministic probes over free agents; both blind-agent
   arms missed one that the battery catches explicitly.

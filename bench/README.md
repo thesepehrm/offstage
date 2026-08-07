@@ -6,7 +6,8 @@ fixture app through the generic driver and writes `bench/data/<app>-<variant>.js
 `app-never-frontmost` safety check). Exit code 0 = all probes passed.
 
 These are the harness's integration tests, and the template for
-crystallizing your own app's journeys into a ~30 s, 0-token regression gate.
+crystallizing your own app's journeys into a sub-10-second, 0-token
+regression gate (currently ~9 s for the notes battery, ~6 s for the converter).
 
 ```sh
 # build the fixture app first (see README quick start), then:

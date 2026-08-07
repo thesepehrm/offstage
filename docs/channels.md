@@ -41,7 +41,11 @@ noted):
 All measured, single host, macOS 26.1, in the research program this harness was extracted from:
 
 - Deterministic battery recall: 13/13 (notes app) and 8/8 (converter), 0 false
-  alarms in 57 clean probe outcomes, ~30 s/variant, **0 model tokens**.
+  alarms in 57 clean probe outcomes, **0 model tokens**. A battery run costs
+  ~9 s (notes) and ~6 s (converter) on the current driver.
+- Settling on a port main-thread barrier instead of fixed sleeps took the notes
+  battery from a 19.9 s median to 9.0 s, and removed the flake the sleeps were
+  hiding: 1/3 clean runs before, 5/5 after.
 - Blind-agent arms (AX/ground-truth text vs screenshots): equal or better
   defect recall at 3.6–28× lower observation token cost; the advantage grows
   as the model shrinks.

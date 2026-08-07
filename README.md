@@ -35,7 +35,7 @@ Measured on seeded-defect benchmarks (single host, macOS 26.1):
 | equal or better defect recall | text vs screenshots: 5/6 vs 5/6 (frontier model), 4/6 vs 3/6 (small), 6/8 vs 5/8 (second app)                    |
 | cheaper observation           | 3.6–28× fewer observation tokens; 19–31% cheaper whole-session                                                   |
 | smaller models degrade less   | small model lost 2/6 recall on screenshots, 1/6 on text                                                          |
-| free regression mode          | scripted batteries: 13/13 and 8/8 seeded defects, 0 false alarms in 57 clean probe outcomes, ~30 s/run, 0 tokens |
+| free regression mode          | scripted batteries: 13/13 and 8/8 seeded defects, 0 false alarms in 57 clean probe outcomes, 6–9 s/run, 0 tokens |
 | fast channels                 | AX read p50 8 ms; SCK capture p50 41 ms, byte-identical on static scenes; port round-trip p50 0.04 ms            |
 
 The two modes cover each other's blind spots. Pixels miss semantics (label
@@ -131,8 +131,8 @@ Agents without a skill mechanism: paste
 [bench/](bench/) holds scripted probe batteries for the fixture apps: launch,
 a11y scan, journeys, edge inputs, persistence, canonical goldens, and an
 app-never-frontmost safety check. They double as the integration tests and as
-the template for turning your own app's journeys into a ~30 s, zero-token
-regression gate.
+the template for turning your own app's journeys into a sub-10-second,
+zero-token regression gate.
 
 ```sh
 python3 bench/battery_notes.py baseline --make-golden
