@@ -9,6 +9,7 @@ description = "Background-safe autonomous QA harness for macOS apps: AX percepti
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
+authors = [{ name = "Sepehr Mohammadi" }]
 keywords = ["macos", "qa", "testing", "accessibility", "agents", "screencapturekit"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -17,6 +18,11 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Topic :: Software Development :: Testing",
 ]
+
+[project.urls]
+Homepage = "https://github.com/thesepehrm/offstage"
+Repository = "https://github.com/thesepehrm/offstage"
+Issues = "https://github.com/thesepehrm/offstage/issues"
 
 [project.scripts]
 offstage = "offstage.cli:main"
