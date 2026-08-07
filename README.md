@@ -65,6 +65,11 @@ It also wants a compiled test target. Every new check is a code change, a
 rebuild, and a `xcodebuild test` cycle. An agent mid-conversation can't add
 one step and see the result.
 
+Same NotesApp journey, warm derived data, nothing to compile: `xcodebuild
+test` takes 54.5 s, of which 5.5 s is the passing test case and the rest is
+xcodebuild starting, the runner attaching, and the app launching. The
+offstage `batch` call is 1.15 s.
+
 offstage is the ad-hoc counterpart: one CLI call per step, no test target,
 against a running app that stays in the background. Keep XCUITest for the
 suite you commit. Use offstage for the exploratory pass and for checks an

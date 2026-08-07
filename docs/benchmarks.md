@@ -89,6 +89,30 @@ arm two turns.
 
 Reproduce with `python3 bench/bench_agent_vs_battery.py protocol`.
 
+## The same journey as XCUITest
+
+NotesApp ships a `JourneyTests` UI target covering the same ground. Warm
+derived data, nothing to compile:
+
+| arm               | wall clock | what you wait for                         | machine    |
+| ----------------- | ---------- | ----------------------------------------- | ---------- |
+| `xcodebuild test` | 54.5 s     | 41.4 s test phase, 5.5 s per passing case | taken over |
+| screenshot agent  | 44.7 s     | model turns                               | taken over |
+| offstage `batch`  | 1.15 s     | the app settling                          | yours      |
+
+The per-case time is the fair comparison for the journey itself, and 5.5 s is
+still ~5x. The other 49 s is the part you cannot skip: xcodebuild starting,
+the runner attaching, the app launching under test.
+
+One of the three cases failed, and the failure is the useful part.
+`testJourneyDeleteUndo` could not find the `undoDelete` button: "No matches
+found for first query match sequence." At the manifest's window size that
+button is not in the tree at all, because SwiftUI collapsed it into an
+`AXPopUpButton "more toolbar items"` overflow. One `observe` shows the popup
+sitting where the button should be. The XCUITest failure only says the query
+matched nothing, and a query that matches nothing looks the same whether the
+control moved, was renamed, or was never built.
+
 ## Settling on a barrier, not a sleep
 
 The driver used to sleep 0.6 s after every action and 0.8 s after launch.
