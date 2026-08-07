@@ -2,47 +2,9 @@
 
 **Background QA for macOS apps while you keep using your Mac.**
 
-offstage lets an AI agent (or a plain script) drive and verify a native macOS
-app without taking over your desktop. The app under test stays in the
-background and never becomes frontmost. No synthetic input reaches your
-foreground.
-
-The agent gets four channels:
-
-- **Structure**: the accessibility tree as compact text (`observe`).
-- **Pixels**: real ScreenCaptureKit window captures. On-demand screenshots
-  (`observe --mode screenshot`) and canonical-state golden diffs (`golden`).
-- **Control**: button and menu presses via `AXPress` (`press`, `menu`), and a
-  semantic port the app embeds in debug builds (`port`) for typing, tab
-  switching, and drags.
-- **Ground truth**: the app's persisted state via `defaults export`.
-  Verification never rests on what the UI claims.
-
-The one refusal: synthetic keyboard or mouse events on a shared desktop.
-Those land in whatever window is frontmost, including yours.
-
-## Why not a computer-use agent?
-
-A screenshot-driven computer-use agent needs the foreground. It clicks and
-types into the frontmost window, so it can't run while you work, and every
-observation costs an image. offstage inverts both: background-only channels,
-text observation, pixels only where a check needs them.
-
-Measured on seeded-defect benchmarks (single host, macOS 26.1):
-
-| claim                         | number                                                                                                           |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| equal or better defect recall | text vs screenshots: 5/6 vs 5/6 (frontier model), 4/6 vs 3/6 (small), 6/8 vs 5/8 (second app)                    |
-| cheaper observation           | 3.6–28× fewer observation tokens; 19–31% cheaper whole-session                                                   |
-| smaller models degrade less   | small model lost 2/6 recall on screenshots, 1/6 on text                                                          |
-| free regression mode          | scripted batteries: 13/13 and 8/8 seeded defects, 0 false alarms in 57 clean probe outcomes, 6–9 s/run, 0 tokens |
-| fast channels                 | AX read p50 8 ms; SCK capture p50 41 ms, byte-identical on static scenes; port round-trip p50 0.04 ms            |
-
-The two modes cover each other's blind spots. Pixels miss semantics (label
-defects aren't pixels); text misses typography (font regressions need the
-golden diff). Details: [docs/channels.md](docs/channels.md).
-
-## How it works
+An AI agent (or a plain script) drives and verifies a native macOS app that
+never comes to the foreground. No synthetic input reaches whatever you're
+typing into.
 
 ```
 ┌────────────┐   press / menu (AXPress)   ┌──────────────────┐
@@ -54,33 +16,74 @@ golden diff). Details: [docs/channels.md](docs/channels.md).
                  UserDefaults ground truth
 ```
 
+## Four channels
+
+| channel          | what the agent gets                                                   |
+| ---------------- | --------------------------------------------------------------------- |
+| **structure**    | accessibility tree as compact text (`observe`)                        |
+| **pixels**       | ScreenCaptureKit captures, canonical-state golden diffs (`golden`)    |
+| **control**      | `AXPress` for buttons and menus, a semantic port for typing and drags |
+| **ground truth** | the app's persisted state, so verification never trusts the UI        |
+
+The one refusal: no synthetic keyboard or mouse events. Those land in
+whatever window is frontmost, including yours. What each channel can and
+can't do: [docs/channels.md](docs/channels.md).
+
+## Why not a computer-use agent
+
+A screenshot-driven agent needs the foreground, so it can't run while you
+work, and every observation costs an image.
+
+Measured against screenshot-driven runs on seeded-defect apps:
+
+- Equal or better defect recall, at 3.6x to 28x fewer observation tokens.
+- Smaller models degrade less on text than on screenshots.
+- Scripted batteries catch 13/13 and 8/8 seeded defects in ~9 s, 0 tokens.
+
+Full tables: [docs/benchmarks.md](docs/benchmarks.md).
+
 ## Quick start
 
 ```sh
 pip install -e .
-offstage probes build       # compile the Swift probe binaries (one-time)
+offstage probes build       # compile the Swift probes (one-time)
 offstage doctor             # check session, permissions, toolchain
 ```
 
-Try the bundled fixture app:
+Build the bundled fixture app:
 
 ```sh
-cd examples/NotesApp
-xcodegen generate
+cd examples/NotesApp && xcodegen generate
 xcodebuild -project NotesApp.xcodeproj -scheme NotesApp -configuration Debug \
   -derivedDataPath /tmp/offstage-nb-dd build
 cd ..
+```
 
+Drive it:
+
+```sh
 offstage start notesapp.manifest.json
 offstage press notesapp.manifest.json addNote
 offstage observe notesapp.manifest.json
-offstage port notesapp.manifest.json '{"cmd":"rename","index":0,"title":"Hello"}'
-offstage golden bake notesapp.manifest.json   # goldens are per-machine
-offstage golden check notesapp.manifest.json
+offstage golden bake notesapp.manifest.json    # goldens are per-machine
 offstage stop notesapp.manifest.json
 ```
 
-A whole journey runs in one call, with its own assertions, via `batch`:
+## The verbs
+
+| verb                           | does                                              |
+| ------------------------------ | ------------------------------------------------- |
+| `start` / `restart` / `stop`   | launch fresh, relaunch without reset, quit        |
+| `press <id>` / `menu <m> <i>`  | AXPress a button or menu item                     |
+| `port '<json>'`                | semantic action: typing, tabs, drags              |
+| `observe`                      | AX rows, persisted state, port state, a11y counts |
+| `golden check` / `golden bake` | canonical-state pixel diff, or rewrite goldens    |
+| `batch <steps>`                | a whole journey in one call (below)               |
+
+## Run journeys with `batch`
+
+One CLI call costs an agent one turn, so a ten-step journey costs ten.
+`batch` runs the list in one process and returns one JSON result.
 
 ```sh
 offstage batch notesapp.manifest.json '[
@@ -91,69 +94,60 @@ offstage batch notesapp.manifest.json '[
   ["expect","/port/titles","[\"TOP\"]"]]'
 ```
 
-`expect` takes an RFC 6901 pointer into `{defaults: the persisted store, port:
-the port's state reply}` — ground truth, not the actuation echo — so the
-result is pass/fail rather than a dump to interpret. Steps may also be a
-`.json` file or `-` for stdin; exit status is 1 when a step fails. The same
-ten-step journey, per verb versus batched ([bench/bench_batch.py](bench/bench_batch.py)):
+`expect` takes an RFC 6901 pointer into `{defaults: the persisted store,
+port: the port's state reply}`. It reads ground truth, not the actuation
+echo, so the result is pass/fail instead of a dump to interpret.
 
-| flow     | agent turns | observation tokens | wall clock |
-| -------- | ----------- | ------------------ | ---------- |
-| per verb | 12          | ~2000              | 2.4 s      |
-| `batch`  | 1           | ~340               | 1.15 s     |
-
-For your own app: write a manifest ([docs/manifest.md](docs/manifest.md)) and
-embed the port ([swift/OffstagePort](swift/OffstagePort)).
+Steps can also be a `.json` file or `-` for stdin. Exit status is 1 when a
+step fails. Batching that journey: 1 turn instead of 12, ~340 tokens instead
+of ~2000.
 
 ## Use with Claude Code, Codex, and other agents
 
-The CLI is the agent interface. Any agent that can run shell commands can QA
-an app with it. A ready-made skill teaches the workflow and the safety rules:
+The CLI is the agent interface. A ready-made skill teaches the workflow and
+the safety rules:
 
 ```sh
-offstage skill install                           # copies into ~/.claude/skills
+offstage skill install                           # into ~/.claude/skills
 offstage skill install --target .agents/skills   # or anywhere else
 ```
 
-Claude Code can also install it as a plugin:
+Claude Code can install it as a plugin instead:
 
 ```
 /plugin marketplace add thesepehrm/offstage
 /plugin install offstage-qa@offstage
 ```
 
-Agents without a skill mechanism: paste
+No skill mechanism? Paste
 [skills/offstage-qa/SKILL.md](skills/offstage-qa/SKILL.md) into your
 `AGENTS.md`.
 
-## Deterministic batteries
+## Your own app
 
-[bench/](bench/) holds scripted probe batteries for the fixture apps: launch,
-a11y scan, journeys, edge inputs, persistence, canonical goldens, and an
-app-never-frontmost safety check. They double as the integration tests and as
-the template for turning your own app's journeys into a sub-10-second,
-zero-token regression gate.
-
-```sh
-python3 bench/battery_notes.py baseline --make-golden
-python3 bench/battery_notes.py check
-```
+1. Write a manifest: [docs/manifest.md](docs/manifest.md).
+2. Embed the port in debug builds: [swift/OffstagePort](swift/OffstagePort).
+3. Crystallize the journeys worth keeping as `batch` step files, or as a
+   battery script ([bench/](bench/)) when they need conditionals.
 
 ## Host requirements
 
 - macOS 15+ (measured on 26.1), Xcode command-line tools, `xcodegen` for the
   example apps.
-- Unlocked screen, display awake (`caffeinate -du` for long runs). The driver
-  refuses to run into a locked session because the channels degrade silently.
-- Accessibility and Screen Recording permission for the host terminal.
-  One-time manual grants; nothing can automate them, including CI.
+- Unlocked screen, display awake. Use `caffeinate -du` for long runs. The
+  driver refuses to run into a locked session, because the channels degrade
+  silently.
+- Accessibility and Screen Recording permission for the host terminal. Both
+  are one-time manual grants that nothing can automate, including CI.
 
 ## Limits
 
 No synthetic input on a shared desktop. No background typing into SwiftUI
-fields (AX set-value looks like it works; the store never changes). Goldens
-are byte-exact on the same machine only. Full list, with the failure behind
-each rule: [docs/limits.md](docs/limits.md).
+fields, where AX set-value looks like it works but the store never changes.
+Goldens are byte-exact on the same machine only.
+
+Full list, with the failure behind each rule:
+[docs/limits.md](docs/limits.md).
 
 ## Repo layout
 
@@ -165,7 +159,7 @@ each rule: [docs/limits.md](docs/limits.md).
 | `skills/`              | agent skill (Claude Code plugin layout)                     |
 | `examples/`            | two fixture apps (NotesApp, ConvertApp) + manifests         |
 | `bench/`               | deterministic probe batteries (= integration tests)         |
-| `docs/`                | channel table, limits, manifest reference                   |
+| `docs/`                | channels, benchmarks, limits, manifest reference            |
 
 ## Provenance
 

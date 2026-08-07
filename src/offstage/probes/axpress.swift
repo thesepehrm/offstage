@@ -32,11 +32,27 @@ func find(_ el: AXUIElement, role: String, id: String? = nil, desc: String? = ni
     return nil
 }
 
-if let b = find(ax, role: "AXButton", id: target) {
+// The AX tree publishes asynchronously after the app's main thread commits, so
+// a control that an action just revealed (an undo button that appears once
+// something is deletable) can be absent for tens of ms. Measured action ->
+// AX-settled p95 is 56 ms. Poll to a deadline instead of failing on the first
+// look: a missing target is only a finding once it stays missing.
+let deadline = Date().addingTimeInterval(1.5)
+var direct: AXUIElement?
+var overflow: AXUIElement?
+while true {
+    direct = find(ax, role: "AXButton", id: target)
+    if direct != nil { break }
+    overflow = find(ax, role: "AXPopUpButton", desc: "more toolbar items")
+    if overflow != nil || Date() >= deadline { break }
+    usleep(20_000)
+}
+
+if let b = direct {
     print("PRESS=direct err=\(AXUIElementPerformAction(b, kAXPressAction as CFString).rawValue)")
     exit(0)
 }
-guard let pop = find(ax, role: "AXPopUpButton", desc: "more toolbar items") else {
+guard let pop = overflow else {
     print("PRESS=FAIL nobtn nopop"); exit(1)
 }
 _ = AXUIElementPerformAction(pop, kAXPressAction as CFString)

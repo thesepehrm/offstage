@@ -68,6 +68,11 @@ value` pairs from the launch arguments, but treats leftover bare arguments
   (the reply crosses `DispatchQueue.main.sync`, so it proves the main-thread
   work queued by the action has run) and waits for launch on port-answers plus
   an `AXWindow` in the tree. Apps with no port fall back to the flat sleep.
+- **A settled main thread is not a settled AX tree.** The tree publishes
+  asynchronously afterwards, so a control an action just revealed can be
+  absent for tens of ms (p95 56 ms). `axpress` polls for its target to a
+  1.5 s deadline for that reason; any probe that looks for a control once,
+  immediately after an action, will flake instead of failing honestly.
 - Order-sensitive defects (stale recompute after a specific journey order)
   favor crystallized deterministic probes over free agents; both blind-agent
   arms missed one that the battery catches explicitly.
