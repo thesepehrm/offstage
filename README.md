@@ -80,6 +80,28 @@ offstage golden check notesapp.manifest.json
 offstage stop notesapp.manifest.json
 ```
 
+A whole journey runs in one call, with its own assertions, via `batch`:
+
+```sh
+offstage batch notesapp.manifest.json '[
+  ["start"],
+  ["press","addNote"],
+  ["expect","/defaults/notes.v1/0/title","\"Untitled\""],
+  ["port","{\"cmd\":\"rename\",\"index\":0,\"title\":\"TOP\"}"],
+  ["expect","/port/titles","[\"TOP\"]"]]'
+```
+
+`expect` takes an RFC 6901 pointer into `{defaults: the persisted store, port:
+the port's state reply}` — ground truth, not the actuation echo — so the
+result is pass/fail rather than a dump to interpret. Steps may also be a
+`.json` file or `-` for stdin; exit status is 1 when a step fails. The same
+ten-step journey, per verb versus batched ([bench/bench_batch.py](bench/bench_batch.py)):
+
+| flow     | agent turns | observation tokens | wall clock |
+| -------- | ----------- | ------------------ | ---------- |
+| per verb | 12          | ~2000              | 2.4 s      |
+| `batch`  | 1           | ~340               | 1.15 s     |
+
 For your own app: write a manifest ([docs/manifest.md](docs/manifest.md)) and
 embed the port ([swift/OffstagePort](swift/OffstagePort)).
 

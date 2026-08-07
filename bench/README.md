@@ -16,6 +16,13 @@ python3 bench/battery_convert.py baseline --make-golden
 python3 bench/battery_convert.py check
 ```
 
+`bench_batch.py` measures what the `batch` verb saves an agent — turns,
+observation tokens, and wall clock against the same journey run verb by verb:
+
+```sh
+python3 bench/bench_batch.py 3     # median of 3 runs
+```
+
 Requirements: unlocked screen, display awake, Accessibility + Screen Recording
 permissions for the host terminal. Goldens are byte-exact **same-machine
 only**; always bake locally before checking.

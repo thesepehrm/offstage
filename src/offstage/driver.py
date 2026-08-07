@@ -24,6 +24,7 @@ import time
 from pathlib import Path
 
 from . import probes
+from .batch import MISSING, resolve
 from .manifest import Manifest
 
 
@@ -246,6 +247,72 @@ class Driver:
             time.sleep(float(args[0]))
             return ""
         raise ValueError(f"unknown driver verb: {cmd}")
+
+    # ---------- batch ----------
+
+    def _snapshot(self) -> dict:
+        return {"defaults": self.defaults_json(), "port": self.port_cmd({"cmd": "state"})}
+
+    def _step(self, step: list) -> dict:
+        """Run one batch step; return its result record (never raises for an
+        app-level failure — a failed step is data, not a crash)."""
+        verb, args = step[0], list(step[1:])
+        if verb == "expect":
+            if len(args) != 2:
+                raise ValueError("expect takes <json-pointer> <expected-json>")
+            want = json.loads(args[1])
+            got = resolve(self._snapshot(), args[0])
+            return {"ok": got == want, "pointer": args[0], "want": want,
+                    "got": got if got is not MISSING else repr(got)}
+        if verb in ("start", "restart"):
+            return {"out": f"launched={self.launch(verb == 'start')}"}
+        if verb == "stop":
+            self.stop()
+            return {"out": "stopped"}
+        if verb == "observe":
+            return {"out": self.observe()}
+        if verb == "golden":
+            if args[:1] not in (["check"], ["bake"]):
+                raise ValueError("golden takes 'check' or 'bake'")
+            return {"out": self.golden(make=args[0] == "bake")}
+        return {"out": self.dispatch(verb, args)}
+
+    def batch(self, steps, stop: bool = True) -> dict:
+        """Run a step list in this process and return one JSON-able result.
+
+        Steps are the driver verbs (`press`/`menu`/`port`/`sleep`), lifecycle
+        (`start`/`restart`/`stop`), perception (`observe`, `golden check|bake`),
+        and `expect <pointer> <json>`. By default the run stops at the first
+        failing step; a dead app always stops it, since every later step would
+        report a failure caused by the first one."""
+        if not isinstance(steps, list) or not all(
+                isinstance(s, list) and s and all(isinstance(x, str) for x in s)
+                for s in steps):
+            raise ValueError("batch takes a list of [verb, ...args] string steps")
+        out, failed = [], None
+        for i, step in enumerate(steps):
+            t0 = time.time()
+            try:
+                rec = self._step(step)
+            except Exception as e:  # noqa: BLE001 — a bad step is a result, not a traceback
+                rec = {"error": f"{type(e).__name__}: {e}"}
+            rec = {"i": i, "verb": step[0], **rec, "ms": round((time.time() - t0) * 1000)}
+            rec.setdefault("ok", "error" not in rec)
+            if rec["ok"] and step[0] != "stop" and self.pid() is None:
+                rec["ok"] = False
+                rec["error"] = "app died during this step"
+            out.append(rec)
+            if not rec["ok"]:
+                failed = i if failed is None else failed
+                if stop or "died" in rec.get("error", ""):
+                    break
+        res = {"ok": failed is None, "steps": out,
+               "app_alive": self.pid() is not None}
+        if failed is not None:
+            res["failed_step"] = failed
+        txt = json.dumps(res)
+        self.cost("text", len(txt) // 4)
+        return res
 
     # ---------- perception ----------
 

@@ -12,10 +12,12 @@
     offstage observe <manifest>        perception snapshot (--mode ax|screenshot)
     offstage golden check <manifest>   reset to canonical fixture state, capture, diff
     offstage golden bake <manifest>    same, but WRITE the golden files
+    offstage batch <manifest> <steps>  run a whole step list in one process, one JSON out
 """
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -124,6 +126,33 @@ def cmd_observe(args) -> int:
     return 0
 
 
+def cmd_batch(args) -> int:
+    """Steps come from inline JSON, a .json file, or stdin ('-')."""
+    src = args.steps
+    if src == "-":
+        raw = sys.stdin.read()
+    elif src.lstrip()[:1] in ("[", "{"):
+        raw = src
+    else:
+        p = Path(src)
+        if not p.exists():
+            print(f"no such steps file: {p} (pass inline JSON, a file path, or '-')")
+            return 64
+        raw = p.read_text()
+    try:
+        steps = json.loads(raw)
+    except json.JSONDecodeError as e:
+        print(f"steps are not valid JSON: {e}")
+        return 64
+    try:
+        res = _driver(args).batch(steps, stop=not args.keep_going)
+    except ValueError as e:
+        print(str(e))
+        return 64
+    print(json.dumps(res, indent=1))
+    return 0 if res["ok"] else 1
+
+
 def cmd_golden(args) -> int:
     print(_driver(args).golden(make=(args.golden_cmd == "bake")))
     return 0
@@ -184,6 +213,22 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument("--mode", choices=["ax", "screenshot"], default=None,
                     help="default: ax (or $OFFSTAGE_OBSERVE)")
     sp.set_defaults(fn=cmd_observe)
+
+    sp = sub.add_parser(
+        "batch", help="run a step list in one process (one JSON result)",
+        description="Steps: [[\"start\"],[\"press\",\"addNote\"],"
+                    "[\"expect\",\"/defaults/notes.v1/0/title\",\"\\\"Untitled\\\"\"]]. "
+                    "Verbs: start restart stop press menu port sleep observe "
+                    "golden check|bake expect <json-pointer> <expected-json>. "
+                    "expect resolves against {defaults: persisted store, "
+                    "port: the port's state reply}.")
+    sp.add_argument("manifest")
+    sp.add_argument("steps", help="inline JSON, a path to a .json file, or '-' for stdin")
+    sp.add_argument("--keep-going", action="store_true",
+                    help="run every step even after a failure (default: stop at the first)")
+    sp.add_argument("--mode", choices=["ax", "screenshot"], default=None,
+                    help="observe mode for observe steps")
+    sp.set_defaults(fn=cmd_batch)
 
     sp = sub.add_parser("golden", help="canonical-state visual goldens")
     sp.add_argument("golden_cmd", choices=["check", "bake"])

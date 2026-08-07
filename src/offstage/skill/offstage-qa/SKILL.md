@@ -42,7 +42,34 @@ offstage port <manifest> '<json>'  # semantic action; app-specific commands
 offstage observe <manifest>        # compact JSON: AX rows, defaults, port state, a11y counts
 offstage golden check <manifest>   # canonical-state pixel diff (resets app state!)
 offstage golden bake <manifest>    # rewrite goldens (only when a visual change is intended)
+offstage batch <manifest> <steps>  # a whole step list in one call (see below)
 ```
+
+## Run journeys with `batch`, not verb-by-verb
+
+One CLI call costs you a turn, so a ten-step journey costs ten. `batch` runs
+the list in one process and returns one JSON result. Steps are the same verbs
+plus `expect <json-pointer> <expected-json>`, which asserts against ground
+truth and makes the batch self-judging.
+
+```sh
+offstage batch app.manifest.json '[
+  ["start"],
+  ["press","addNote"],
+  ["expect","/defaults/notes.v1/0/title","\"Untitled\""],
+  ["port","{\"cmd\":\"rename\",\"index\":0,\"title\":\"TOP\"}"],
+  ["expect","/port/titles","[\"TOP\"]"]]'
+```
+
+Steps can also be a `.json` file path or `-` for stdin. The pointer resolves
+against `{"defaults": <persisted store>, "port": <the port's state reply>}`;
+dotted keys like `notes.v1` are ordinary pointer tokens. Exit status is 1 when
+any step fails, and the result names the failing step with `want`/`got`. The
+run stops at the first failure (`--keep-going` overrides) and always stops if
+the app dies.
+
+Reach for single verbs when exploring — one press, then `observe` to see what
+the app did. Once you know the journey, batch it.
 
 ## Working discipline
 
@@ -76,7 +103,9 @@ offstage golden bake <manifest>    # rewrite goldens (only when a visual change 
 
 ## Crystallize when done
 
-When a QA pass finds journeys worth keeping, offer to encode them as a
-deterministic battery script (see `bench/battery_notes.py` in the harness
-repo for the template): each probe is a scripted verb sequence + a
-ground-truth assertion. Batteries re-run at ~30 s and zero model tokens.
+When a QA pass finds journeys worth keeping, save the step lists as `.json`
+files and re-run them with `batch` — each one already carries its own
+`expect` assertions, so it re-runs at zero model tokens. For journeys that
+need logic a step list cannot express (state repair, conditionals), encode a
+battery script instead (see `bench/battery_notes.py` in the harness repo for
+the template).
