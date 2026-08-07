@@ -24,6 +24,21 @@ observation tokens, and wall clock against the same journey run verb by verb:
 python3 bench/bench_batch.py 3     # median of 3 runs
 ```
 
+`bench_agent_vs_battery.py` compares offstage against the thing it replaces: a
+model driving the same journey through screenshots and synthetic clicks. The
+agent arm cannot be scripted, because a model being the loop is what is being
+measured, so it is a protocol plus a recorder:
+
+```sh
+python3 bench/bench_agent_vs_battery.py offstage 5    # arm A, timed here
+python3 bench/bench_agent_vs_battery.py protocol      # arm B, run by hand
+python3 bench/bench_agent_vs_battery.py record-agent 44.7 --turns 5
+python3 bench/bench_agent_vs_battery.py report
+```
+
+The agent arm takes the machine while it runs. That is the measurement, not a
+setup problem.
+
 Requirements: unlocked screen, display awake, Accessibility + Screen Recording
 permissions for the host terminal. Goldens are byte-exact **same-machine
 only**; always bake locally before checking.

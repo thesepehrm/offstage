@@ -16,7 +16,7 @@ port, and verify against ground truth, not screenshots.
 offstage doctor
 ```
 
-If `offstage` is not installed: `pip install offstage` (or `pip install -e .`
+If `offstage` is not installed: `pip install offstage` (or `pip install -e '.[dev]'`
 inside the harness repo). Doctor failing on a locked screen or missing
 Accessibility or Screen Recording permission is a **user action**: report it
 and stop; there is no programmatic workaround.

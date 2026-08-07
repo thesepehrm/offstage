@@ -34,13 +34,26 @@ can't do: [docs/channels.md](docs/channels.md).
 A screenshot-driven agent needs the foreground, so it can't run while you
 work, and every observation costs an image.
 
-Measured against screenshot-driven runs on seeded-defect apps:
+Same journey, both ways: two notes, two renames, a menu delete, verified at
+each step. A model driving screenshots and clicks took a median 44.7 s over
+3 runs. The same journey as one offstage `batch` call took 1.15 s over 5.
+
+One of the three agent runs deleted both notes instead of one. It could not
+tell from pixels that its first menu click had already landed, so it clicked
+again, and it finished reporting success. Persisted state said `[]`.
+
+That is the argument, more than the 39x. A screenshot agent's failure mode is
+a confident wrong answer, because the only thing it can check is whether the
+window looks right. Reading the app's own state turns that into a mismatch.
+
+Also measured, on seeded-defect apps:
 
 - Equal or better defect recall, at 3.6x to 28x fewer observation tokens.
 - Smaller models degrade less on text than on screenshots.
 - Scripted batteries catch 13/13 and 8/8 seeded defects in ~9 s, 0 tokens.
 
-Full tables: [docs/benchmarks.md](docs/benchmarks.md).
+Full tables, including what the 39x understates and overstates:
+[docs/benchmarks.md](docs/benchmarks.md).
 
 ## Why not XCUITest
 

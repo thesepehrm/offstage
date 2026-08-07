@@ -60,6 +60,35 @@ call. Per-verb verification means an `observe` dump after every mutation;
 Turns are the win worth having. Wall clock was already small.
 Reproduce with `python3 bench/bench_batch.py 3`.
 
+## A screenshot agent on the same journey
+
+Two notes, two renames, a menu delete, verified at each step. The agent arm
+was a real model driving screenshot and click tools, with no offstage access.
+The offstage arm was the same journey as one `batch` call.
+
+| arm              | runs | wall clock (median) | turns | tokens | failed |
+| ---------------- | ---- | ------------------- | ----- | ------ | ------ |
+| screenshot agent | 3    | 44.7 s              | 5     | ~9000  | 1 of 3 |
+| offstage battery | 5    | 1.15 s              | 1     | ~300   | 0 of 5 |
+
+39x on the median, and the agent arm never had the machine free: the app was
+frontmost the whole time and every keystroke went into it.
+
+Read the failure before the multiple. The failed run deleted both notes
+instead of one, because the agent could not tell from pixels that its first
+menu click had already landed. It reported success. Reading persisted state
+makes that case a mismatch instead of a screenshot that looks fine.
+
+The spread across the three agent runs was 90.6 s, 44.7 s, 32.9 s. The slow
+one was the first, before the model had learned that the app's title field
+only takes focus when the click lands on the glyphs. Runs 2 and 3 reused that
+knowledge, so the median understates a cold agent. Two caveats in the other
+direction: n=3 is small, and one delete had to go through the keyboard
+shortcut because the sandbox blocked the menu-bar click, which cost the agent
+arm two turns.
+
+Reproduce with `python3 bench/bench_agent_vs_battery.py protocol`.
+
 ## Settling on a barrier, not a sleep
 
 The driver used to sleep 0.6 s after every action and 0.8 s after launch.
