@@ -42,13 +42,30 @@ Measured against screenshot-driven runs on seeded-defect apps:
 
 Full tables: [docs/benchmarks.md](docs/benchmarks.md).
 
+## Why not XCUITest
+
+XCUITest takes the machine too. It brings the app under test to the
+foreground and synthesizes events, so a run and your typing can't share a
+desktop.
+
+It also wants a compiled test target. Every new check is a code change, a
+rebuild, and a `xcodebuild test` cycle. An agent mid-conversation can't add
+one step and see the result.
+
+offstage is the ad-hoc counterpart: one CLI call per step, no test target,
+against a running app that stays in the background. Keep XCUITest for the
+suite you commit. Use offstage for the exploratory pass and for checks an
+agent writes on the spot.
+
 ## Quick start
 
 ```sh
-pip install -e .
+pip install offstage
 offstage probes build       # compile the Swift probes (one-time)
 offstage doctor             # check session, permissions, toolchain
 ```
+
+From a clone: `pip install -e '.[dev]'`.
 
 Build the bundled fixture app:
 
