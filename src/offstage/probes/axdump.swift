@@ -1,12 +1,23 @@
 // axdump: compact generic AX summary of an app's windows.
 // One line per element: Role "label" val="value" id=identifier — empty parts omitted,
-// menu bar excluded, no indentation. Usage: axdump <bundle-id>
+// menu bar excluded, no indentation. Usage: axdump <pid-or-bundle-id>
 import ApplicationServices
 import AppKit
 
-guard CommandLine.arguments.count > 1 else { print("usage: axdump <bundle-id>"); exit(64) }
-guard let app = NSRunningApplication.runningApplications(
-        withBundleIdentifier: CommandLine.arguments[1]).first else { print("NOAPP"); exit(1) }
+// Target token: a pid or a bundle id. A bundle id is ambiguous the moment the
+// same app exists in more than one build — worktrees, a release beside a debug
+// build — and `.first` then picks an arbitrary one. A pid names exactly one
+// process, so the driver passes that whenever it knows which instance is its
+// own.
+func offstageApp(_ token: String) -> NSRunningApplication? {
+    if let pid = pid_t(token) {
+        return NSRunningApplication(processIdentifier: pid)
+    }
+    return NSRunningApplication.runningApplications(withBundleIdentifier: token).first
+}
+
+guard CommandLine.arguments.count > 1 else { print("usage: axdump <pid-or-bundle-id>"); exit(64) }
+guard let app = offstageApp(CommandLine.arguments[1]) else { print("NOAPP"); exit(1) }
 let ax = AXUIElementCreateApplication(app.processIdentifier)
 
 func attr(_ el: AXUIElement, _ n: String) -> CFTypeRef? {

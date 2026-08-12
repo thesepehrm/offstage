@@ -60,9 +60,81 @@ class Driver:
     def probe(self, name, *args, timeout=60) -> str:
         return self.sh(self.bin / name, *args, timeout=timeout)
 
+    def _processes(self) -> list[tuple[int, str]]:
+        """Every running process whose executable name matches the manifest,
+        with its full command line.
+
+        Two steps because BSD `pgrep` cannot print arguments: `-a` means
+        something else here than it does on Linux (it prints bare pids), and
+        `-l` prints the process name only. `ps` supplies the command line.
+        """
+        pids = [x for x in self.sh("pgrep", "-x", self.mf.name).split() if x.isdigit()]
+        if not pids:
+            return []
+        out = self.sh("ps", "-o", "pid=,args=", "-p", ",".join(pids))
+        rows = []
+        for line in out.splitlines():
+            head, _, args = line.strip().partition(" ")
+            if head.isdigit():
+                rows.append((int(head), args))
+        return rows
+
     def pid(self) -> int | None:
-        out = self.sh("pgrep", "-x", self.mf.name)
-        return int(out.split()[0]) if out else None
+        """The pid of THIS manifest's instance.
+
+        Never `pgrep -x <name>` alone. One app built from several checkouts —
+        worktrees, a release build beside a debug one — puts several processes
+        of the same name and the same bundle id on the machine, and the first
+        match is arbitrary. Taking it means `launch` kills somebody else's app,
+        `app_alive` reports a stranger's liveness, and the AX probes describe a
+        window the socket in this manifest does not talk to.
+
+        The socket path is the discriminator: it is per-manifest, and `launch`
+        passes it on the command line. Fall back to the app bundle path, then
+        to the bare name for apps that carry neither.
+        """
+        rows = self._processes()
+        if not rows:
+            return None
+        for marker in (f"-uitest-port {self.mf.sock_path}", str(self.mf.app_path)):
+            for p, args in rows:
+                if marker in args:
+                    return p
+        return rows[0][0] if len(rows) == 1 else None
+
+    def strangers(self) -> list[tuple[int, str]]:
+        """Same-named processes that are NOT this manifest's instance. They
+        share the bundle id, so they compete for every bundle-id-addressed
+        channel — and a `start` in their session terminates this one."""
+        mine = self.pid()
+        return [(p, args) for p, args in self._processes() if p != mine]
+
+    def stranger_note(self) -> str:
+        """A one-line warning when another copy of the app is running. It cannot
+        be fixed from here — both copies share a bundle id, so they share the
+        UserDefaults domain this harness reads as ground truth, and a `start`
+        or an `xcodebuild test` in that other checkout terminates this
+        instance. Saying so beats letting the run fail mysteriously later."""
+        others = self.strangers()
+        if not others:
+            return ""
+        where = ", ".join(sorted({self.bundle_of(args) for _, args in others}))
+        return (f" WARNING: {len(others)} other {self.mf.name} process(es) running"
+                f" from {where}; they share this bundle id and can terminate this"
+                " instance or answer bundle-id-addressed probes")
+
+    @staticmethod
+    def bundle_of(args: str) -> str:
+        head = args.split(" -")[0]
+        marker = ".app/"
+        return head[:head.index(marker) + 4] if marker in head else head
+
+    def target(self) -> str:
+        """What the AX probes address. A pid when we know ours, otherwise the
+        bundle id — probes accept either, and a stale bundle id at least keeps
+        single-instance hosts working."""
+        p = self.pid()
+        return str(p) if p else self.mf.bundle_id
 
     def cost(self, kind: str, tokens: int) -> None:
         if self.cost_log:
@@ -175,7 +247,12 @@ class Driver:
         # those from the launch arguments, while leftover bare args are treated
         # as documents to open — and with >=3 leftovers a SwiftUI WindowGroup
         # app never creates its window at all (observed macOS 26.1).
-        args = ["open", "-g", "-a", str(self.mf.app_path), "--args",
+        #
+        # `-n` forces a new instance from THIS bundle path. Without it
+        # LaunchServices resolves the request by bundle id and hands back a
+        # copy already running from a different build, so the launch silently
+        # no-ops and every later command drives somebody else's window.
+        args = ["open", "-g", "-n", "-a", str(self.mf.app_path), "--args",
                 "-NSRequiresAquaSystemAppearance", "YES",
                 *self.mf.launch_args,
                 "-uitest-port", self.mf.sock_path]
@@ -195,7 +272,7 @@ class Driver:
         while time.time() - t0 < 10:
             r = self.port_cmd({"cmd": "offstage.ping"}, timeout=1.0)
             if (isinstance(r, dict) and "error" not in r
-                    and "AXWindow" in self.probe("axdump", self.mf.bundle_id)):
+                    and "AXWindow" in self.probe("axdump", self.target())):
                 return True
             time.sleep(0.05)
         return False
@@ -215,10 +292,10 @@ class Driver:
         return f"done latency_ms={ms:.0f} app_alive={self.pid() is not None}"
 
     def press(self, identifier: str) -> str:
-        return self._act(lambda: self.probe("axpress", self.mf.bundle_id, identifier))
+        return self._act(lambda: self.probe("axpress", self.target(), identifier))
 
     def menu(self, menu: str, item: str) -> str:
-        return self._act(lambda: self.probe("axmenu", self.mf.bundle_id, menu, item,
+        return self._act(lambda: self.probe("axmenu", self.target(), menu, item,
                                             timeout=60))
 
     def port(self, payload: str) -> str:
@@ -265,7 +342,8 @@ class Driver:
             return {"ok": got == want, "pointer": args[0], "want": want,
                     "got": got if got is not MISSING else repr(got)}
         if verb in ("start", "restart"):
-            return {"out": f"launched={self.launch(verb == 'start')}"}
+            launched = self.launch(verb == "start")
+            return {"out": f"launched={launched}{self.stranger_note()}"}
         if verb == "stop":
             self.stop()
             return {"out": "stopped"}
@@ -331,11 +409,20 @@ class Driver:
             scale = min(1.0, 1568 / max(w, h))
             self.cost("image", int(w * scale * h * scale / 750))
             return f"screenshot: {shot}  (read it as an image)"
-        ax = self.probe("axdump", self.mf.bundle_id)
-        scan = self.probe("axscan", self.mf.bundle_id).replace("\n", " ")
+        ax = self.probe("axdump", self.target())
+        scan = self.probe("axscan", self.target()).replace("\n", " ")
         state = self.port_cmd({"cmd": "state"})
-        txt = json.dumps({"ax": ax.split("\n"), "defaults": self.defaults_json(),
-                          "port_state": state, "a11y_scan": scan})
+        payload = {"ax": ax.split("\n"), "defaults": self.defaults_json(),
+                   "port_state": state, "a11y_scan": scan}
+        # Surface the ambiguity rather than describing one instance as if it
+        # were the only one: the persisted defaults below belong to whichever
+        # copy wrote last, and they all share the domain.
+        others = self.strangers()
+        if others:
+            payload["other_instances"] = [
+                {"pid": p, "bundle": self.bundle_of(args)} for p, args in others
+            ]
+        txt = json.dumps(payload)
         self.cost("text", len(txt) // 4)
         return txt
 
@@ -354,7 +441,7 @@ class Driver:
         thr = self.mf.golden_threshold_pct
         out = []
         for g in self.mf.goldens:
-            self.probe("resize", self.mf.bundle_id, g.width, g.height)
+            self.probe("resize", self.target(), g.width, g.height)
             time.sleep(1.2)
             shot = self.shots / f"gcheck-{self.mf.name}-{g.name}.png"
             self.probe("sckwin", p, shot, timeout=30)
@@ -375,9 +462,9 @@ class Driver:
             except (IndexError, ValueError):
                 pct = 0.0
             if pct >= 50.0:
-                self.probe("resize", self.mf.bundle_id, g.width, g.height + 1)
+                self.probe("resize", self.target(), g.width, g.height + 1)
                 time.sleep(0.4)
-                self.probe("resize", self.mf.bundle_id, g.width, g.height)
+                self.probe("resize", self.target(), g.width, g.height)
                 time.sleep(1.2)
                 self.probe("sckwin", p, shot, timeout=30)
                 d = self.probe("pixdiff", g.file, shot) + " (recaptured)"

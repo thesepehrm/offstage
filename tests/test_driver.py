@@ -102,3 +102,101 @@ def test_golden_reports_missing_golden_file(tmp_path, monkeypatch):
     monkeypatch.setattr("time.sleep", lambda s: None)
     out = d.golden()
     assert "NO GOLDEN" in out
+
+
+def _with_processes(driver, rows):
+    driver._processes = lambda: rows  # noqa: SLF001 — stubbing the pgrep call
+
+
+def test_pid_prefers_the_instance_holding_this_manifest_socket(tmp_path, monkeypatch):
+    d = make_driver(tmp_path, monkeypatch, sock="/tmp/mine.sock")
+    _with_processes(d, [
+        (100, "/other/Build/App.app/Contents/MacOS/App -uitest-port /tmp/theirs.sock"),
+        (200, f"{d.mf.app_path}/Contents/MacOS/App -uitest-port /tmp/mine.sock"),
+    ])
+    assert d.pid() == 200
+
+
+def test_pid_falls_back_to_the_manifest_app_path(tmp_path, monkeypatch):
+    d = make_driver(tmp_path, monkeypatch, sock="/tmp/mine.sock")
+    _with_processes(d, [
+        (100, "/other/Build/App.app/Contents/MacOS/App"),
+        (200, f"{d.mf.app_path}/Contents/MacOS/App"),
+    ])
+    assert d.pid() == 200
+
+
+def test_pid_is_none_when_several_strangers_and_none_is_ours(tmp_path, monkeypatch):
+    """Better no target than an arbitrary one: picking `.first` here is what
+    made launch kill another checkout's app."""
+    d = make_driver(tmp_path, monkeypatch, sock="/tmp/mine.sock")
+    _with_processes(d, [
+        (100, "/a/App.app/Contents/MacOS/App -uitest-port /tmp/a.sock"),
+        (101, "/b/App.app/Contents/MacOS/App -uitest-port /tmp/b.sock"),
+    ])
+    assert d.pid() is None
+
+
+def test_pid_takes_a_lone_process_without_markers(tmp_path, monkeypatch):
+    d = make_driver(tmp_path, monkeypatch, sock="/tmp/mine.sock")
+    _with_processes(d, [(100, "/somewhere/App.app/Contents/MacOS/App")])
+    assert d.pid() == 100
+
+
+def test_target_is_the_pid_when_known(tmp_path, monkeypatch):
+    d = make_driver(tmp_path, monkeypatch, sock="/tmp/mine.sock")
+    _with_processes(d, [(200, f"{d.mf.app_path}/Contents/MacOS/App -uitest-port /tmp/mine.sock")])
+    assert d.target() == "200"
+
+
+def test_target_falls_back_to_the_bundle_id(tmp_path, monkeypatch):
+    d = make_driver(tmp_path, monkeypatch, sock="/tmp/mine.sock")
+    _with_processes(d, [])
+    assert d.target() == "dev.example.App"
+
+
+def test_stranger_note_names_the_other_bundle(tmp_path, monkeypatch):
+    d = make_driver(tmp_path, monkeypatch, sock="/tmp/mine.sock")
+    _with_processes(d, [
+        (200, f"{d.mf.app_path}/Contents/MacOS/App -uitest-port /tmp/mine.sock"),
+        (100, "/other/Build/App.app/Contents/MacOS/App -uitest-port /tmp/theirs.sock"),
+    ])
+    note = d.stranger_note()
+    assert "1 other App process" in note
+    assert "/other/Build/App.app" in note
+
+
+def test_stranger_note_is_empty_when_alone(tmp_path, monkeypatch):
+    d = make_driver(tmp_path, monkeypatch, sock="/tmp/mine.sock")
+    _with_processes(d, [(200, f"{d.mf.app_path}/Contents/MacOS/App -uitest-port /tmp/mine.sock")])
+    assert d.stranger_note() == ""
+
+
+def test_processes_parses_ps_output(tmp_path, monkeypatch):
+    """Guards the shell contract: BSD pgrep cannot print arguments, so the pid
+    list and the command lines come from two different commands."""
+    d = make_driver(tmp_path, monkeypatch, sock="/tmp/mine.sock")
+    calls = []
+
+    def fake_sh(*cmd, timeout=60):
+        calls.append([str(c) for c in cmd])
+        if cmd[0] == "pgrep":
+            return "100\n200"
+        return "  100 /a/App.app/Contents/MacOS/App -uitest-port /tmp/a.sock\n" \
+               "  200 /b/App.app/Contents/MacOS/App -uitest-port /tmp/mine.sock"
+
+    d.sh = fake_sh
+    assert d._processes() == [
+        (100, "/a/App.app/Contents/MacOS/App -uitest-port /tmp/a.sock"),
+        (200, "/b/App.app/Contents/MacOS/App -uitest-port /tmp/mine.sock"),
+    ]
+    assert calls[0][:2] == ["pgrep", "-x"]
+    assert calls[1][0] == "ps" and calls[1][-1] == "100,200"
+    assert d.pid() == 200
+
+
+def test_processes_empty_when_nothing_matches(tmp_path, monkeypatch):
+    d = make_driver(tmp_path, monkeypatch, sock="/tmp/mine.sock")
+    d.sh = lambda *cmd, timeout=60: ""
+    assert d._processes() == []
+    assert d.pid() is None

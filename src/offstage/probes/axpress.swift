@@ -4,13 +4,25 @@
 // the identifier against item titles/descriptions; failing that, press the first item
 // that does NOT look like a different toolbar button (overflow menu items lose their
 // SwiftUI identifiers). Prints PRESS=direct|overflow|FAIL.
-// Usage: axpress <bundle-id> <ax-identifier>
+// Usage: axpress <pid-or-bundle-id> <ax-identifier>
 import ApplicationServices
 import AppKit
 
+// Target token: a pid or a bundle id. A bundle id is ambiguous the moment the
+// same app exists in more than one build — worktrees, a release beside a debug
+// build — and `.first` then picks an arbitrary one. A pid names exactly one
+// process, so the driver passes that whenever it knows which instance is its
+// own.
+func offstageApp(_ token: String) -> NSRunningApplication? {
+    if let pid = pid_t(token) {
+        return NSRunningApplication(processIdentifier: pid)
+    }
+    return NSRunningApplication.runningApplications(withBundleIdentifier: token).first
+}
+
 let a = CommandLine.arguments
-guard a.count > 2 else { print("usage: axpress <bundle-id> <identifier>"); exit(64) }
-guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: a[1]).first else {
+guard a.count > 2 else { print("usage: axpress <pid-or-bundle-id> <identifier>"); exit(64) }
+guard let app = offstageApp(a[1]) else {
     print("NOAPP"); exit(1)
 }
 let target = a[2]

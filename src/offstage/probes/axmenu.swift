@@ -1,11 +1,23 @@
 // axmenu: AXPress a menu item by title on a background app, without opening the menu.
-// Usage: axmenu <bundle-id> <menu-title> <item-title>
+// Usage: axmenu <pid-or-bundle-id> <menu-title> <item-title>
 import ApplicationServices
 import AppKit
 
+// Target token: a pid or a bundle id. A bundle id is ambiguous the moment the
+// same app exists in more than one build — worktrees, a release beside a debug
+// build — and `.first` then picks an arbitrary one. A pid names exactly one
+// process, so the driver passes that whenever it knows which instance is its
+// own.
+func offstageApp(_ token: String) -> NSRunningApplication? {
+    if let pid = pid_t(token) {
+        return NSRunningApplication(processIdentifier: pid)
+    }
+    return NSRunningApplication.runningApplications(withBundleIdentifier: token).first
+}
+
 let a = CommandLine.arguments
-guard a.count > 3 else { print("usage: axmenu <bundle-id> <menu> <item>"); exit(64) }
-guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: a[1]).first else {
+guard a.count > 3 else { print("usage: axmenu <pid-or-bundle-id> <menu> <item>"); exit(64) }
+guard let app = offstageApp(a[1]) else {
     print("ERROR: app not running"); exit(1)
 }
 let ax = AXUIElementCreateApplication(app.processIdentifier)

@@ -79,3 +79,16 @@ value` pairs from the launch arguments, but treats leftover bare arguments
 - Complementary blindness: pixels miss semantics (accessibility-label defects
   are not pixels); text misses typography (font regressions need the
   canonical-state golden check). Run both.
+- **Several builds of one app share its identity.** Worktrees, or a release
+  build beside a debug one, put several same-named processes with the same
+  bundle id on the machine. The driver keeps its own instance apart by the
+  socket path it launched with (falling back to the app bundle path), targets
+  the AX probes at that pid rather than the bundle id, and launches with
+  `open -n` so LaunchServices cannot hand back somebody else's copy. Three
+  things stay outside its reach, and `start`/`observe` report the other
+  instances so they are at least visible:
+  - `defaults export` reads one preferences domain for all of them, so ground
+    truth is whichever copy wrote last.
+  - An `xcodebuild test` run in another checkout terminates every instance —
+    the app is the test host.
+  - So does an `offstage start` from another checkout's session.

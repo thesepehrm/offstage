@@ -103,3 +103,34 @@ def test_batch_bad_step_shape(manifest, monkeypatch, capsys):
     monkeypatch.setattr(Driver, "__init__", lambda self, mf, **kw: None)
     assert main(["batch", manifest, '{"press":"x"}']) == 64
     assert "list of" in capsys.readouterr().out
+
+
+def _manifest(tmp_path):
+    mf = tmp_path / "m.json"
+    mf.write_text(json.dumps({
+        "name": "App", "bundle_id": "dev.example.App",
+        "app_path": "/tmp/App.app", "sock_path": "/tmp/mine.sock",
+    }))
+    return mf
+
+
+def test_doctor_warns_about_another_build_of_the_app(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(Driver, "strangers", lambda self: [
+        (100, "/other/App.app/Contents/MacOS/App -uitest-port /tmp/theirs.sock")])
+    rc = main(["doctor", str(_manifest(tmp_path))])
+    out = capsys.readouterr().out
+    assert "WARN  1 other App process" in out
+    assert "/other/App.app" in out
+    assert rc == 1
+
+
+def test_doctor_reports_a_clear_field(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(Driver, "strangers", lambda self: [])
+    main(["doctor", str(_manifest(tmp_path))])
+    assert "ok    no other App process running" in capsys.readouterr().out
+
+
+def test_doctor_without_a_manifest_says_nothing_about_instances(capsys):
+    main(["doctor"])
+    out = capsys.readouterr().out
+    assert "other" not in out

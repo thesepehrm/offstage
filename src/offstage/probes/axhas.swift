@@ -1,11 +1,22 @@
 // axhas: does an element with the given accessibility identifier exist in the app's
-// windows (menu bar excluded)? Prints HAS=1/0. Usage: axhas <bundle-id> <identifier>
+// windows (menu bar excluded)? Prints HAS=1/0. Usage: axhas <pid-or-bundle-id> <identifier>
 import ApplicationServices
 import AppKit
 
-guard CommandLine.arguments.count > 2 else { print("usage: axhas <bundle-id> <identifier>"); exit(64) }
-guard let app = NSRunningApplication.runningApplications(
-        withBundleIdentifier: CommandLine.arguments[1]).first else { print("NOAPP"); exit(1) }
+// Target token: a pid or a bundle id. A bundle id is ambiguous the moment the
+// same app exists in more than one build — worktrees, a release beside a debug
+// build — and `.first` then picks an arbitrary one. A pid names exactly one
+// process, so the driver passes that whenever it knows which instance is its
+// own.
+func offstageApp(_ token: String) -> NSRunningApplication? {
+    if let pid = pid_t(token) {
+        return NSRunningApplication(processIdentifier: pid)
+    }
+    return NSRunningApplication.runningApplications(withBundleIdentifier: token).first
+}
+
+guard CommandLine.arguments.count > 2 else { print("usage: axhas <pid-or-bundle-id> <identifier>"); exit(64) }
+guard let app = offstageApp(CommandLine.arguments[1]) else { print("NOAPP"); exit(1) }
 let ax = AXUIElementCreateApplication(app.processIdentifier)
 let want = CommandLine.arguments[2]
 

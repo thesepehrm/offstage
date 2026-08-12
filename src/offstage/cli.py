@@ -1,7 +1,7 @@
 """offstage CLI.
 
     offstage probes build              compile the Swift probe binaries
-    offstage doctor                    check host prerequisites
+    offstage doctor [manifest]         check host prerequisites (+ rival app instances)
     offstage validate <manifest>       validate a per-app manifest
     offstage start <manifest>          launch fresh (full state reset)
     offstage restart <manifest>        quit + relaunch WITHOUT reset (persistence check)
@@ -67,6 +67,26 @@ def cmd_doctor(args) -> int:
           "trees without it)")
     print("note  Screen Recording permission: required for sckwin golden captures")
     print("note  keep the display awake during runs: caffeinate -du")
+    if getattr(args, "manifest", None):
+        # With a manifest we can say something about THIS app: whether another
+        # build of it is running. That is worth checking before a run rather
+        # than after, because the copies share a preferences domain and either
+        # one's test run terminates the other.
+        try:
+            d = Driver(Manifest.load(args.manifest))
+        except ManifestError as e:
+            print(f"FAIL  {e}")
+            return 1
+        others = d.strangers()
+        if others:
+            print(f"WARN  {len(others)} other {d.mf.name} process(es) running:")
+            for p, cmd in others:
+                print(f"      pid {p}  {d.bundle_of(cmd)}")
+            print("      they share this bundle id: ground truth from `defaults` is "
+                  "whichever copy wrote last, and their test runs quit this instance")
+            ok = False
+        else:
+            print(f"ok    no other {d.mf.name} process running")
     return 0 if ok else 1
 
 
@@ -172,6 +192,8 @@ def main(argv: list[str] | None = None) -> int:
     b.set_defaults(fn=cmd_probes)
 
     sp = sub.add_parser("doctor", help="check host prerequisites")
+    sp.add_argument("manifest", nargs="?",
+                    help="optional: also check for other running builds of this app")
     sp.set_defaults(fn=cmd_doctor)
 
     sp = sub.add_parser("skill", help="install the agent skill (Claude Code etc.)")
