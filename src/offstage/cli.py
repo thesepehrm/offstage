@@ -125,8 +125,12 @@ def cmd_lifecycle(args) -> int:
     elif args.cmd == "restart":
         print(f"restarted={d.launch(False)} app_alive={d.pid() is not None}")
     else:
-        d.stop()
-        print("stopped")
+        if d.stop():
+            print("stopped")
+        else:
+            print("not stopped: no process carries this manifest's socket or"
+                  f" app path ({d.mf.app_path}); refusing to kill another copy"
+                  f"{d.stranger_note()}")
     return 0
 
 

@@ -92,15 +92,36 @@ class Driver:
         The socket path is the discriminator: it is per-manifest, and `launch`
         passes it on the command line. Fall back to the app bundle path, then
         to the bare name for apps that carry neither.
+
+        The last fallback is a GUESS, and read-only callers are the only ones
+        allowed to take it — see `owned_pid`.
         """
+        return self._resolve_pid()[0]
+
+    def owned_pid(self) -> int | None:
+        """The pid only when a marker proves it is ours.
+
+        `pid`'s lone-process fallback exists for apps that carry neither
+        marker, and it is right for read-only questions — liveness, which pid
+        the AX probes should address. It is wrong for anything destructive: the
+        one process running is the stranger's precisely when our own instance
+        is NOT up, so `stop` would kill an app this session never launched
+        (observed: an `offstage stop` for a manifest whose instance had never
+        started quit the user's installed copy of the same app).
+        """
+        p, matched = self._resolve_pid()
+        return p if matched else None
+
+    def _resolve_pid(self) -> tuple[int | None, bool]:
+        """(pid, matched-a-marker). False means the pid is a guess."""
         rows = self._processes()
         if not rows:
-            return None
+            return None, False
         for marker in (f"-uitest-port {self.mf.sock_path}", str(self.mf.app_path)):
             for p, args in rows:
                 if marker in args:
-                    return p
-        return rows[0][0] if len(rows) == 1 else None
+                    return p, True
+        return (rows[0][0], False) if len(rows) == 1 else (None, False)
 
     def strangers(self) -> list[tuple[int, str]]:
         """Same-named processes that are NOT this manifest's instance. They
@@ -142,9 +163,12 @@ class Driver:
                 f.write(f"{kind} {tokens}\n")
 
     def wait_gone(self, p: int, timeout: float = 3.0) -> None:
+        """Wait for pid `p` itself to leave, not for `pid()` to go quiet — with
+        a stranger running, `pid()`'s fallback keeps answering after our own
+        process is gone and every wait would burn the full timeout."""
         t0 = time.time()
         while time.time() - t0 < timeout:
-            if self.pid() is None:
+            if p not in {row[0] for row in self._processes()}:
                 return
             time.sleep(0.05)
         subprocess.run(["kill", "-9", str(p)])
@@ -223,7 +247,10 @@ class Driver:
 
     def launch(self, reset: bool) -> bool:
         self.check_session_unlocked()
-        p = self.pid()
+        # owned_pid, not pid: this kills the previous instance, and a guessed
+        # pid here means killing a copy that belongs to somebody else. `open -n`
+        # below starts ours regardless of what else is running.
+        p = self.owned_pid()
         if p:
             subprocess.run(["kill", str(p)])
             self.wait_gone(p)
@@ -277,10 +304,16 @@ class Driver:
             time.sleep(0.05)
         return False
 
-    def stop(self) -> None:
-        p = self.pid()
-        if p:
-            subprocess.run(["kill", str(p)])
+    def stop(self) -> bool:
+        """Quit this manifest's instance. Returns False — without killing
+        anything — when no process carries one of this manifest's markers,
+        because the only candidate left is a stranger's app."""
+        p = self.owned_pid()
+        if not p:
+            return False
+        subprocess.run(["kill", str(p)])
+        self.wait_gone(p)
+        return True
 
     # ---------- actuation ----------
 
@@ -345,8 +378,10 @@ class Driver:
             launched = self.launch(verb == "start")
             return {"out": f"launched={launched}{self.stranger_note()}"}
         if verb == "stop":
-            self.stop()
-            return {"out": "stopped"}
+            if self.stop():
+                return {"out": "stopped"}
+            return {"out": "not stopped: no process carries this manifest's"
+                           " markers; refusing to kill another copy"}
         if verb == "observe":
             return {"out": self.observe()}
         if verb == "golden":

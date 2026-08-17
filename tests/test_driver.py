@@ -1,6 +1,7 @@
 import datetime
 import json
 import socket
+import subprocess
 import threading
 
 import pytest
@@ -141,6 +142,70 @@ def test_pid_takes_a_lone_process_without_markers(tmp_path, monkeypatch):
     d = make_driver(tmp_path, monkeypatch, sock="/tmp/mine.sock")
     _with_processes(d, [(100, "/somewhere/App.app/Contents/MacOS/App")])
     assert d.pid() == 100
+
+
+def test_owned_pid_refuses_the_lone_process_guess(tmp_path, monkeypatch):
+    """The lone process is the stranger's exactly when ours is not running, so
+    the guess `pid()` makes for read-only questions must not reach a kill."""
+    d = make_driver(tmp_path, monkeypatch, sock="/tmp/mine.sock")
+    _with_processes(d, [(100, "/Applications/App.app/Contents/MacOS/App")])
+    assert d.pid() == 100
+    assert d.owned_pid() is None
+
+
+def test_owned_pid_accepts_a_marker_match(tmp_path, monkeypatch):
+    d = make_driver(tmp_path, monkeypatch, sock="/tmp/mine.sock")
+    _with_processes(d, [
+        (100, "/Applications/App.app/Contents/MacOS/App"),
+        (200, f"{d.mf.app_path}/Contents/MacOS/App -uitest-port /tmp/mine.sock"),
+    ])
+    assert d.owned_pid() == 200
+
+
+def test_stop_does_not_kill_a_stranger(tmp_path, monkeypatch):
+    d = make_driver(tmp_path, monkeypatch, sock="/tmp/mine.sock")
+    _with_processes(d, [(100, "/Applications/App.app/Contents/MacOS/App")])
+    killed = []
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: killed.append(a))
+    assert d.stop() is False
+    assert killed == []
+
+
+def test_stop_kills_our_own_instance(tmp_path, monkeypatch):
+    d = make_driver(tmp_path, monkeypatch, sock="/tmp/mine.sock")
+    _with_processes(d, [
+        (200, f"{d.mf.app_path}/Contents/MacOS/App -uitest-port /tmp/mine.sock"),
+    ])
+    killed = []
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: killed.append(a[0]))
+    monkeypatch.setattr(Driver, "wait_gone", lambda self, p, timeout=3.0: None)
+    assert d.stop() is True
+    assert killed == [["kill", "200"]]
+
+
+def test_launch_does_not_kill_a_stranger_before_starting(tmp_path, monkeypatch):
+    """`open -n` starts our copy whatever else is running, so a pre-launch kill
+    of an unmatched process buys nothing and costs somebody their app."""
+    d = make_driver(tmp_path, monkeypatch, sock="/tmp/mine.sock")
+    _with_processes(d, [(100, "/Applications/App.app/Contents/MacOS/App")])
+    calls = []
+    monkeypatch.setattr(Driver, "check_session_unlocked", lambda self: None)
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: calls.append(a[0]))
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    d.launch(reset=True)
+    assert not any(c[:1] == ["kill"] for c in calls)
+
+
+def test_wait_gone_watches_the_given_pid_not_the_fallback(tmp_path, monkeypatch):
+    """With a stranger up, `pid()` keeps answering after ours dies; watching it
+    would burn the whole timeout on every stop."""
+    d = make_driver(tmp_path, monkeypatch, sock="/tmp/mine.sock")
+    _with_processes(d, [(100, "/Applications/App.app/Contents/MacOS/App")])
+    hard_kills = []
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: hard_kills.append(a[0]))
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    d.wait_gone(200, timeout=0.2)
+    assert hard_kills == []
 
 
 def test_target_is_the_pid_when_known(tmp_path, monkeypatch):
