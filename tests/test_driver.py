@@ -1,12 +1,13 @@
 import datetime
 import json
+import pathlib
 import socket
 import subprocess
 import threading
 
 import pytest
 
-from offstage.driver import Driver
+from offstage.driver import ActionFailed, Driver
 from offstage.manifest import Golden, Manifest
 
 
@@ -265,3 +266,81 @@ def test_processes_empty_when_nothing_matches(tmp_path, monkeypatch):
     d.sh = lambda *cmd, timeout=60: ""
     assert d._processes() == []
     assert d.pid() is None
+
+
+def _launch_stubs(d, monkeypatch, port_reply, axdump):
+    """Drive `launch()` past `open` to the settle loop, with the two settle
+    channels answering whatever the caller wants."""
+    monkeypatch.setattr(Driver, "check_session_unlocked", lambda self: None)
+    monkeypatch.setattr(Driver, "owned_pid", lambda self: None)
+    monkeypatch.setattr(subprocess, "run",
+                        lambda *a, **k: pathlib.Path(d.mf.sock_path).touch())
+    monkeypatch.setattr(Driver, "pid", lambda self: 4242)
+    monkeypatch.setattr(Driver, "stranger_note", lambda self: "")
+    monkeypatch.setattr(Driver, "port_cmd", lambda self, *a, **k: port_reply)
+    monkeypatch.setattr(Driver, "probe", lambda self, *a, **k: axdump)
+    monkeypatch.setattr(Driver, "LAUNCH_TIMEOUT", 0.3)
+
+
+def test_launch_names_the_half_that_never_settled(tmp_path, monkeypatch):
+    """The reported symptom: the port answers with the right route while the AX
+    tree is still one bare AXApplication row. Saying only `False` sent a whole
+    investigation after a window-creation bug that did not exist."""
+    d = make_driver(tmp_path, monkeypatch, sock=str(tmp_path / "s.sock"))
+    _launch_stubs(d, monkeypatch, {"ok": 1}, 'AXApplication "App"')
+    assert d.launch(reset=True) is False
+    assert "port ping ok" in d.launch_note
+    assert "AXWindow ABSENT" in d.launch_note
+
+
+def test_launch_note_is_cleared_once_settled(tmp_path, monkeypatch):
+    d = make_driver(tmp_path, monkeypatch, sock=str(tmp_path / "s.sock"))
+    _launch_stubs(d, monkeypatch, {"ok": 1}, 'AXApplication "App"\nAXWindow "App"')
+    assert d.launch(reset=True) is True
+    assert d.launch_note == ""
+
+
+def test_start_step_fails_the_batch_when_the_launch_never_settled(tmp_path, monkeypatch):
+    """A `start` that timed out leaves the app RUNNING, so without this the
+    batch carried on and every later press ran against a half-launched app —
+    finding nothing, and reporting ok."""
+    d = make_driver(tmp_path, monkeypatch, sock=str(tmp_path / "s.sock"))
+    _launch_stubs(d, monkeypatch, {"ok": 1}, 'AXApplication "App"')
+    rec = d._step(["start"])
+    assert rec["ok"] is False
+    assert "launch never settled" in rec["error"]
+
+
+def test_start_step_stays_ok_on_a_settled_launch(tmp_path, monkeypatch):
+    d = make_driver(tmp_path, monkeypatch, sock=str(tmp_path / "s.sock"))
+    _launch_stubs(d, monkeypatch, {"ok": 1}, 'AXApplication "App"\nAXWindow "App"')
+    assert "ok" not in d._step(["start"])  # batch defaults a missing ok to True
+
+
+def test_press_that_found_nothing_raises_instead_of_reporting_done(tmp_path, monkeypatch):
+    """axpress has always printed PRESS=FAIL; `_act` used to discard it and
+    answer `done`, so a journey of misses passed. The only tell was latency."""
+    d = make_driver(tmp_path, monkeypatch)
+    monkeypatch.setattr(Driver, "settle", lambda self: None)
+    monkeypatch.setattr(Driver, "pid", lambda self: 4242)
+    monkeypatch.setattr(Driver, "probe", lambda self, *a, **k: "PRESS=FAIL nobtn nopop")
+    with pytest.raises(ActionFailed, match="PRESS=FAIL"):
+        d.press("no-such-id")
+
+
+def test_menu_error_is_a_failure_too(tmp_path, monkeypatch):
+    d = make_driver(tmp_path, monkeypatch)
+    monkeypatch.setattr(Driver, "settle", lambda self: None)
+    monkeypatch.setattr(Driver, "pid", lambda self: 4242)
+    monkeypatch.setattr(Driver, "probe",
+                        lambda self, *a, **k: "ERROR: no item 'Nope' — have: []")
+    with pytest.raises(ActionFailed, match="no item"):
+        d.menu("File", "Nope")
+
+
+def test_press_that_landed_still_reports_done(tmp_path, monkeypatch):
+    d = make_driver(tmp_path, monkeypatch)
+    monkeypatch.setattr(Driver, "settle", lambda self: None)
+    monkeypatch.setattr(Driver, "pid", lambda self: 4242)
+    monkeypatch.setattr(Driver, "probe", lambda self, *a, **k: "PRESS=direct err=0")
+    assert d.press("real-id").startswith("done latency_ms=")

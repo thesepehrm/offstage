@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 from . import __version__, probes
-from .driver import Driver, SessionLockedError
+from .driver import ActionFailed, Driver, SessionLockedError
 from .manifest import Manifest, ManifestError
 
 
@@ -120,10 +120,16 @@ def cmd_validate(args) -> int:
 
 def cmd_lifecycle(args) -> int:
     d = _driver(args)
-    if args.cmd == "start":
-        print(f"started={d.launch(True)} app_alive={d.pid() is not None}")
-    elif args.cmd == "restart":
-        print(f"restarted={d.launch(False)} app_alive={d.pid() is not None}")
+    if args.cmd in ("start", "restart"):
+        launched = d.launch(args.cmd == "start")
+        label = "started" if args.cmd == "start" else "restarted"
+        print(f"{label}={launched} app_alive={d.pid() is not None}")
+        if not launched:
+            # Exit nonzero AND say why: the process is left running, so a
+            # caller that reads only "app_alive=True" goes on to drive a
+            # half-launched app whose presses cannot land.
+            print(f"NOT SETTLED: {d.launch_note}")
+            return 1
     else:
         if d.stop():
             print("stopped")
@@ -264,6 +270,9 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
     try:
         return args.fn(args)
+    except ActionFailed as e:
+        print(f"FAILED: {e}")
+        return 1
     except SessionLockedError as e:
         print(f"ABORT: {e}")
         return 2

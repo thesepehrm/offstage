@@ -28,6 +28,18 @@ from .batch import MISSING, resolve
 from .manifest import Manifest
 
 
+class ActionFailed(RuntimeError):
+    """An actuation probe reported that the action did not land.
+
+    The probes have always said so — `axpress` prints `PRESS=FAIL`, `axmenu`
+    prints `ERROR: no item ...` — and `_act` used to discard their stdout and
+    answer `done` regardless. A press that found nothing then reported `ok`,
+    and a whole journey of them passed against an app that was never in the
+    state the journey claimed to exercise. The only tell was latency: axpress
+    polls to a 1.5 s deadline before giving up, so a miss answers in ~1.6 s
+    where a landing press answers in ~100 ms."""
+
+
 class SessionLockedError(RuntimeError):
     """The login session is locked or the display is asleep: AX trees come back
     empty, SCK captures fail, and AXPress stalls for seconds. Unlock first
@@ -245,6 +257,15 @@ class Driver:
 
     # ---------- lifecycle ----------
 
+    #: Seconds to wait for a launch to settle. Generous on purpose: a cold
+    #: launch under memory pressure has been measured stalling the main thread
+    #: for 30 s in one stretch before the first window appears, and the old
+    #: 10 s ceiling turned that into a "no window at all" report.
+    LAUNCH_TIMEOUT = 45
+
+    #: Why the last `launch()` returned False; "" after a settled launch.
+    launch_note = ""
+
     def launch(self, reset: bool) -> bool:
         self.check_session_unlocked()
         # owned_pid, not pid: this kills the previous instance, and a guessed
@@ -289,19 +310,40 @@ class Driver:
         # Launch is settled when the port answers (main run loop alive) AND an
         # AXWindow exists (SwiftUI finished first layout) — replaces the old
         # flat 0.8 s guess. Apps without a port fall back to that flat wait.
+        #
+        # A launch that misses this deadline leaves the process RUNNING, and
+        # every later command then addresses a half-launched app: the port
+        # answers with the right route while the AX tree is still one bare
+        # AXApplication row, so presses find nothing and journeys pass
+        # vacuously. That is what the note is for — callers must treat a False
+        # here as fatal, not as a slow start to carry on from.
         t0 = time.time()
-        while time.time() - t0 < 10:
+        while time.time() - t0 < self.LAUNCH_TIMEOUT:
             if Path(self.mf.sock_path).exists() and self.pid():
                 break
             time.sleep(0.05)
         else:
+            self.launch_note = (f"no process answering at {self.mf.sock_path}"
+                                f" within {self.LAUNCH_TIMEOUT}s")
             return False
-        while time.time() - t0 < 10:
+        ping_ok = ax_ok = False
+        while time.time() - t0 < self.LAUNCH_TIMEOUT:
             r = self.port_cmd({"cmd": "offstage.ping"}, timeout=1.0)
-            if (isinstance(r, dict) and "error" not in r
-                    and "AXWindow" in self.probe("axdump", self.target())):
+            ping_ok = isinstance(r, dict) and "error" not in r
+            ax_ok = ping_ok and "AXWindow" in self.probe("axdump", self.target())
+            if ax_ok:
+                self.launch_note = ""
                 return True
             time.sleep(0.05)
+        # Name the half that never settled. A main thread still busy with
+        # launch work fails BOTH (the ping is a `DispatchQueue.main.sync`
+        # barrier); an app whose window genuinely never opens fails only the
+        # AX half.
+        self.launch_note = (
+            f"port ping {'ok' if ping_ok else 'TIMED OUT'},"
+            f" AXWindow {'ok' if ax_ok else 'ABSENT'}"
+            f" after {self.LAUNCH_TIMEOUT}s; the process is still running and"
+            f" is NOT safe to drive")
         return False
 
     def stop(self) -> bool:
@@ -319,10 +361,17 @@ class Driver:
 
     def _act(self, fn) -> str:
         t0 = time.time()
-        fn()
+        out = (fn() or "").strip()
         ms = (time.time() - t0) * 1000  # action only; settle excluded
         self.settle()
-        return f"done latency_ms={ms:.0f} app_alive={self.pid() is not None}"
+        tail = f"latency_ms={ms:.0f} app_alive={self.pid() is not None}"
+        # The probe's own verdict, not a guess from the latency: `axpress`
+        # prints PRESS=FAIL when neither the button nor the toolbar overflow
+        # matched, `axmenu` prints ERROR: ..., and both print NOAPP when the
+        # pid is gone.
+        if out.startswith(("PRESS=FAIL", "ERROR:", "NOAPP")):
+            raise ActionFailed(f"{out} ({tail})")
+        return f"done {tail}"
 
     def press(self, identifier: str) -> str:
         return self._act(lambda: self.probe("axpress", self.target(), identifier))
@@ -376,7 +425,13 @@ class Driver:
                     "got": got if got is not MISSING else repr(got)}
         if verb in ("start", "restart"):
             launched = self.launch(verb == "start")
-            return {"out": f"launched={launched}{self.stranger_note()}"}
+            rec = {"out": f"launched={launched}{self.stranger_note()}"}
+            # Without this the step defaulted to ok=True and the batch ran on
+            # against an app that never finished launching.
+            if not launched:
+                rec["ok"] = False
+                rec["error"] = f"launch never settled: {self.launch_note}"
+            return rec
         if verb == "stop":
             if self.stop():
                 return {"out": "stopped"}

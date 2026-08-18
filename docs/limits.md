@@ -55,6 +55,26 @@ value` pairs from the launch arguments, but treats leftover bare arguments
 - **Verifiers read ground truth** (UserDefaults / the store behind the port),
   never only the actuation layer's echo. The port bypasses all UI input
   plumbing; claims built on its echo alone are model-level.
+- **A launch that does not settle is fatal, and says which half failed.** The
+  gate is the port answering plus an `AXWindow` in the tree, but a launch that
+  misses it leaves the process RUNNING — so every later command drives a
+  half-launched app whose port replies with the right route while presses find
+  nothing. `start`/`restart` now fail their step (they used to return
+  `launched=False` with no `ok` key, which the batch defaulted to ok and ran
+  on from), the CLI exits nonzero, and `launch_note` names whether the ping or
+  the `AXWindow` never came up. The timeout is 45 s: a cold launch under
+  memory pressure was measured stalling its main thread for 30 s in one
+  stretch, and the old 10 s ceiling reported that as an app that creates no
+  window at all — it does; `CGWindowListCopyWindowInfo` and
+  `kAXWindowsAttribute` both find the window on the very pid whose `axdump`
+  is one bare `AXApplication` row.
+- **An actuation probe that reports failure fails the step.** `axpress` prints
+  `PRESS=FAIL` when neither the button nor the toolbar overflow matched and
+  `axmenu` prints `ERROR: ...`; `_act` discarded their stdout and answered
+  `done` regardless, so a journey of misses passed. The only tell was latency
+  — axpress polls to a 1.5 s deadline, so a miss answers in ~1600 ms where a
+  landing press answers in ~100 ms. Latency is still the only tell for a press
+  that lands on the WRONG element.
 
 ## Known limits
 
